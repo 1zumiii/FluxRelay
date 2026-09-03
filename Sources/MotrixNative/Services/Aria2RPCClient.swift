@@ -193,7 +193,7 @@ struct Aria2Task: Identifiable {
     )
   }
 }
-struct Aria2Peer: Identifiable {
+struct Aria2Peer: Identifiable, Equatable {
   let id: String
   let address: String
   let downloadSpeed: Int64
@@ -219,7 +219,7 @@ struct Aria2Peer: Identifiable {
   }
 }
 
-struct Aria2TaskFile: Identifiable {
+struct Aria2TaskFile: Identifiable, Equatable {
   let id: String
   let path: String
   let length: Int64
@@ -248,7 +248,7 @@ struct Aria2TaskFile: Identifiable {
   }
 }
 
-struct Aria2GlobalStat {
+struct Aria2GlobalStat: Equatable {
   let downloadSpeed: Int64
   let uploadSpeed: Int64
   let active: Int

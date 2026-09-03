@@ -19,11 +19,13 @@ enum L10n {
 
   private static let languageLock = NSLock()
   nonisolated(unsafe) private static var selectedLanguage = Language.system.rawValue
+  nonisolated(unsafe) private static var resourceBundle = Bundle.main
 
-  static func configure(language: String) {
+  static func configure(language: String, bundle: Bundle = .main) {
     let normalized = Language(rawValue: language)?.rawValue ?? Language.system.rawValue
     languageLock.lock()
     selectedLanguage = normalized
+    resourceBundle = bundle
     languageLock.unlock()
   }
 
@@ -38,13 +40,14 @@ enum L10n {
   private static var localizedBundle: Bundle {
     languageLock.lock()
     let language = selectedLanguage
+    let resources = resourceBundle
     languageLock.unlock()
     guard
       language != Language.system.rawValue,
-      let path = Bundle.main.path(forResource: language, ofType: "lproj"),
+      let path = resources.path(forResource: language, ofType: "lproj"),
       let bundle = Bundle(path: path)
     else {
-      return .main
+      return resources
     }
     return bundle
   }

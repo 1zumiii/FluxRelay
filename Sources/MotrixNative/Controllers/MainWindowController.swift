@@ -30,7 +30,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
       backing: .buffered,
       defer: false
     )
-    window.title = "Motrix Native"
+    window.title = AppIdentity.displayName
     window.titleVisibility = .hidden
     window.titlebarAppearsTransparent = true
     window.minSize = NSSize(width: 920, height: 560)

@@ -11,6 +11,8 @@ final class StatusController: NSObject, NSMenuDelegate {
   private let menu = NSMenu()
 
   private var timer: Timer?
+  private let refreshCoalescer = RefreshCoalescer()
+  private var isMenuOpen = false
   private var tasks: [Aria2Task] = []
   private var globalStat = Aria2GlobalStat(downloadSpeed: 0, uploadSpeed: 0, active: 0, waiting: 0, stopped: 0)
   private var lastError: String?
@@ -43,7 +45,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
       Task { @MainActor in
-        await self?.refresh()
+        await self?.refresh(queueFollowUp: false)
       }
     }
 
@@ -62,10 +64,20 @@ final class StatusController: NSObject, NSMenuDelegate {
   }
 
   func menuWillOpen(_ menu: NSMenu) {
+    isMenuOpen = true
     markCompletedTasksRead()
+    renderMenu()
   }
 
-  private func refresh() async {
+  func menuDidClose(_ menu: NSMenu) {
+    isMenuOpen = false
+  }
+
+  private func refresh(queueFollowUp: Bool = true) async {
+    await refreshCoalescer.run(queueFollowUp: queueFollowUp) { [self] in await refreshSnapshot() }
+  }
+
+  private func refreshSnapshot() async {
     do {
       let globalStat = try await client.getGlobalStat()
       let tasks = try await client.listTasks()
@@ -97,6 +109,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
   private func renderMenu() {
     renderStatusItem()
+    guard isMenuOpen || menu.numberOfItems == 0 else { return }
 
     menu.removeAllItems()
     menu.addItem(headerItem())
@@ -253,7 +266,7 @@ final class StatusController: NSObject, NSMenuDelegate {
       )
     }
 
-    return "Motrix Native"
+    return AppIdentity.displayName
   }
 
   private func updateCompletionState(with tasks: [Aria2Task]) -> Set<String> {

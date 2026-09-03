@@ -119,6 +119,7 @@ struct MotrixConfig {
     let home = fileManager.homeDirectoryForCurrentUser
     let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
       ?? home.appendingPathComponent("Library/Application Support")
+    // Keep the existing data location when upgrading from Motrix Native to FluxRelay.
     let supportDirectory = applicationSupport.appendingPathComponent("Motrix Native", isDirectory: true)
     let legacySupportDirectory = applicationSupport.appendingPathComponent("Motrix", isDirectory: true)
 

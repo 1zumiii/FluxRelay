@@ -1,8 +1,10 @@
-# Motrix Native
+# FluxRelay
 
 Native macOS menu bar download manager powered by its own bundled aria2 engine.
 
 The original Motrix is a capable aria2 frontend, but on macOS it insists on keeping a Dock icon instead of living quietly in the menu bar. Working with its Electron/npm setup was also painfully slow on my network, even through a proxy. Eventually frustration won: I rebuilt the experience in native Swift. The download engine is still aria2, so this is best understood as a native macOS frontend rather than a downloader written from scratch.
+
+Originally called Motrix Native, the project is now **FluxRelay**. Motrix inspired the project; aria2 still powers the downloads, while the interface and application logic are independently implemented in Swift.
 
 [简体中文](README.md) | English
 
@@ -20,7 +22,7 @@ The current build requires Apple Silicon (arm64) and macOS 14 or later.
 - Connects to an already-running compatible aria2 RPC server, or starts its own bundled engine.
 - Shows weighted download progress in the menu bar with a compact ring icon.
 - Uses a warning status icon when the aria2 RPC engine is unavailable.
-- Provides a SwiftUI native task window with rounded sidebar filters, search, and grouped task cards.
+- Provides a native SwiftUI task window with a compact sidebar, search, and grouped task cards.
 - Includes a preferences page for key Motrix basic/advanced settings.
 - Supports System Default, Simplified Chinese, and English interface languages from the General settings page.
 - Adds a compact add-task sheet for URLs and `.torrent` files.
@@ -33,7 +35,7 @@ The current build requires Apple Silicon (arm64) and macOS 14 or later.
 - Visualizes aria2 piece completion as a compact block matrix, with automatic sampling for very large tasks.
 - Supports task sorting, multi-selection, batch pause/resume/removal, completed-record cleanup, and waiting-queue priority controls.
 - Can remove task records while moving their downloaded and partial files to the macOS Trash.
-- Saves settings to Motrix Native's independent `system.json` and `user.json`.
+- Saves settings to FluxRelay's independent `system.json` and `user.json`.
 - Can disable BitTorrent seeding entirely; restarting the engine reloads the latest saved settings.
 - Removes stale `.aria2` control files only after aria2 reports the task as fully complete.
 - Provides high-throughput adaptive HTTP connection tuning with per-host learned profiles and a balanced 48-connection starting point.
@@ -63,7 +65,7 @@ The script pins aria2 commit `9e7273583f83e881e3ec067b523ba88724088d2f`, restore
 Then build the Swift app:
 
 ```sh
-xcrun swift build --arch arm64
+xcrun swift build -c release --arch arm64 --product FluxRelay
 ```
 
 ## Package
@@ -72,13 +74,15 @@ xcrun swift build --arch arm64
 Scripts/package-app.sh
 ```
 
-The development app bundle is written to:
+The app bundle, built in Release configuration, is written to:
 
 ```text
-MotrixNative/.build/app/Motrix Native.app
+MotrixNative/.build/app/FluxRelay.app
 ```
 
 ## Source layout
+
+The repository directory and Swift module retain the historical name `MotrixNative`; the app and executable are both named `FluxRelay`.
 
 The executable target follows an MVC-oriented layout under `Sources/MotrixNative`:
 
@@ -94,4 +98,10 @@ User-facing strings are stored in `Resources/Localization`. Swift code accesses 
 
 ## Notes
 
-The packaged app contains its own arm64 aria2 engine, defaults, build manifest, icon, and language resources. Packaging rejects the wrong architecture, a mismatched engine version, or non-system dynamic dependencies. Removing the original Motrix app does not remove Motrix Native's engine or settings. Launch Motrix Native once before deleting Motrix data so the one-time configuration and session migration can complete.
+The packaged app contains its own arm64 aria2 engine, defaults, build manifest, icon, and language resources. Packaging rejects the wrong architecture, a mismatched engine version, or non-system dynamic dependencies. Removing the original Motrix app does not remove FluxRelay's engine or settings. Launch FluxRelay once before deleting Motrix data so the one-time configuration and session migration can complete.
+
+## Upgrading from Motrix Native
+
+FluxRelay keeps the bundle identifier `dev.codex.motrix-native`, the data directory `~/Library/Application Support/Motrix Native`, and the log filename `motrix-native-aria2.log`. Existing settings and download sessions do not need to be imported again. These historical names preserve compatibility; they are not dependencies on the original Motrix app.
+
+Quit the old version before opening `FluxRelay.app`, and do not run both versions together. If opening at login stops working after moving or replacing the app, turn Open at Login off and back on in Settings.

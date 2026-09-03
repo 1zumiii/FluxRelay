@@ -1,7 +1,10 @@
-# Motrix Native
+# FluxRelay
 
 由独立内置 aria2 引擎驱动的 macOS 原生菜单栏下载工具。</br>
 由于原版Motrix会一直保留在Dock导航栏，不能隐藏在状态栏里，且npm下载环境异常的慢挂了梯子都慢，逼死强迫症了（怒），于是一怒之下用Swift重构了一个MotrixNative，但是其实只把内部的aria2引擎拿过来了...本质还是个套皮App
+
+项目最初叫 Motrix Native，现在更名为 **FluxRelay**。起点来自 Motrix，下载引擎仍是 aria2，界面与应用逻辑则独立用 Swift 实现。
+
 ### 仅供个人使用！！！
 
 当前版本仅支持 Apple Silicon（arm64）和 macOS 14 或更高版本。
@@ -44,7 +47,7 @@ Scripts/build-aria2-arm64.sh --install
 然后构建 Swift 应用：
 
 ```sh
-xcrun swift build --arch arm64
+xcrun swift build -c release --arch arm64 --product FluxRelay
 ```
 
 ## 打包
@@ -53,13 +56,15 @@ xcrun swift build --arch arm64
 Scripts/package-app.sh
 ```
 
-开发版 App 会生成在：
+使用 Release 配置打包的 App 会生成在：
 
 ```text
-MotrixNative/.build/app/Motrix Native.app
+MotrixNative/.build/app/FluxRelay.app
 ```
 
 ## 源码结构
+
+仓库目录与 Swift 模块暂时保留历史名称 `MotrixNative`，对外的应用名称和可执行文件均为 `FluxRelay`。
 
 可执行目标位于 `Sources/MotrixNative`，采用面向 MVC 的职责划分：
 
@@ -75,4 +80,10 @@ MotrixNative/.build/app/Motrix Native.app
 
 ## 独立性
 
-打包后的应用包含自身所需的 arm64 aria2 引擎、默认配置、版本清单、图标和语言资源。打包脚本会拒绝非 arm64 产物、版本不匹配或第三方动态库依赖。首次迁移完成后，删除原版 Motrix 不会影响 Motrix Native 的引擎、配置或任务会话。
+打包后的应用包含自身所需的 arm64 aria2 引擎、默认配置、版本清单、图标和语言资源。打包脚本会拒绝非 arm64 产物、版本不匹配或第三方动态库依赖。首次迁移完成后，删除原版 Motrix 不会影响 FluxRelay 的引擎、配置或任务会话。
+
+## 从 Motrix Native 升级
+
+FluxRelay 沿用应用标识 `dev.codex.motrix-native`、数据目录 `~/Library/Application Support/Motrix Native` 和日志文件名 `motrix-native-aria2.log`，无需重新导入设置或下载会话。这些历史名称用于保持兼容，并不代表仍然依赖原版 Motrix。
+
+更新时先退出旧版，再使用 `FluxRelay.app`，不要同时运行两个版本。若移动或更换 App 路径后登录启动失效，在设置中重新关闭并开启一次“登录时启动”。

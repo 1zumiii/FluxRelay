@@ -9,7 +9,7 @@ final class StatusMenuHeaderView: NSView {
     icon.imageScaling = .scaleProportionallyUpOrDown
     icon.translatesAutoresizingMaskIntoConstraints = false
 
-    let title = label("Motrix Native", size: 14, weight: .semibold, color: .labelColor)
+    let title = label(AppIdentity.displayName, size: 14, weight: .semibold, color: .labelColor)
     let stateLabel = label(state, size: 11, weight: .medium, color: isError ? .systemOrange : .secondaryLabelColor)
     let detailLabel = label(detail, size: 11, weight: .regular, color: .tertiaryLabelColor)
     detailLabel.lineBreakMode = .byTruncatingTail

@@ -76,18 +76,7 @@ struct TaskDetailView: View {
             peerSection
           }
 
-          DetailSection(
-            title: task.fileDetails.count > 1
-              ? L10n.format("common.files_count", String(task.fileDetails.count))
-              : L10n.tr("common.files")
-          ) {
-            ForEach(Array(task.fileDetails.enumerated()), id: \.element.id) { index, file in
-              TaskFileRow(file: file)
-              if index < task.fileDetails.count - 1 {
-                DetailDivider()
-              }
-            }
-          }
+          filesSection
 
           DetailSection(title: L10n.tr("task_detail.location_and_source")) {
             DetailRow(title: L10n.tr("common.destination"), value: task.directory.isEmpty ? (task.primaryFileURL?.path ?? "-") : task.directory)
@@ -233,7 +222,25 @@ struct TaskDetailView: View {
 
   private var pieceMapSection: some View {
     DetailSection(title: L10n.tr("task_detail.piece_distribution")) {
-      PieceMapView(task: task)
+      PieceMapView(input: PieceMapInput(taskID: task.id, numPieces: task.numPieces, bitfield: task.bitfield))
+        .id(task.id)
+    }
+  }
+
+  private var filesSection: some View {
+    let files = task.fileDetails
+    return DetailSection(
+      title: files.count > 1
+        ? L10n.format("common.files_count", String(files.count))
+        : L10n.tr("common.files"),
+      lazy: true
+    ) {
+      ForEach(files) { file in
+        VStack(spacing: 0) {
+          TaskFileRow(file: file).equatable()
+          if file.id != files.last?.id { DetailDivider() }
+        }
+      }
     }
   }
 

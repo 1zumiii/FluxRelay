@@ -3,17 +3,21 @@
 import PackageDescription
 
 let package = Package(
-  name: "MotrixNative",
+  name: "FluxRelay",
   platforms: [
     .macOS(.v14)
   ],
   products: [
-    .executable(name: "MotrixNative", targets: ["MotrixNative"])
+    .executable(name: "FluxRelay", targets: ["MotrixNative"])
   ],
   targets: [
     .executableTarget(
       name: "MotrixNative",
       path: "Sources/MotrixNative"
+    ),
+    .testTarget(
+      name: "MotrixNativeTests",
+      dependencies: ["MotrixNative"]
     )
   ]
 )

@@ -207,6 +207,7 @@ final class MainWindowModel: ObservableObject {
   @Published private(set) var proxyTestMessage: String?
 
   private var refreshTimer: Timer?
+  private let refreshCoalescer = RefreshCoalescer()
 
   init(config: MotrixConfig, client: Aria2RPCClient) {
     self.config = config
@@ -349,7 +350,7 @@ final class MainWindowModel: ObservableObject {
     refreshTimer?.invalidate()
     refreshTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
       Task { @MainActor in
-        await self?.refresh()
+        await self?.refresh(queueFollowUp: false)
       }
     }
     Task { await refresh() }
@@ -360,27 +361,29 @@ final class MainWindowModel: ObservableObject {
     refreshTimer = nil
   }
 
-  func refresh() async {
+  func refresh(queueFollowUp: Bool = true) async {
+    await refreshCoalescer.run(queueFollowUp: queueFollowUp) { [self] in await refreshSnapshot() }
+  }
+
+  private func refreshSnapshot() async {
     do {
       let latestStat = try await client.getGlobalStat()
       let latestTasks = try await client.listTasks()
       tasks = latestTasks
-      selectedTaskIDs.formIntersection(Set(latestTasks.map(\.id)))
-      globalStat = latestStat.usingActiveTaskSpeeds(latestTasks)
+      let retainedIDs = selectedTaskIDs.intersection(Set(latestTasks.map(\.id)))
+      if selectedTaskIDs != retainedIDs { selectedTaskIDs = retainedIDs }
+      let displayedStat = latestStat.usingActiveTaskSpeeds(latestTasks)
+      if globalStat != displayedStat { globalStat = displayedStat }
       if let selectedTaskID, let selected = latestTasks.first(where: { $0.id == selectedTaskID }) {
-        selectedTaskOptions = (try? await client.getOption(selectedTaskID)) ?? [:]
-        if selected.isBitTorrent {
-          selectedPeers = (try? await client.getPeers(selectedTaskID)) ?? []
-        } else {
-          selectedPeers = []
-        }
+        await refreshDetails(for: selected)
       } else {
-        selectedTaskOptions = [:]
-        selectedPeers = []
+        if !selectedTaskOptions.isEmpty { selectedTaskOptions = [:] }
+        if !selectedPeers.isEmpty { selectedPeers = [] }
       }
-      errorText = nil
+      if errorText != nil { errorText = nil }
     } catch {
-      errorText = L10n.tr("engine.rpc_disconnected")
+      let message = L10n.tr("engine.rpc_disconnected")
+      if errorText != message { errorText = message }
     }
   }
 
@@ -476,8 +479,8 @@ final class MainWindowModel: ObservableObject {
     let options = (try? await client.getOption(task.id)) ?? [:]
     let peers = task.isBitTorrent ? ((try? await client.getPeers(task.id)) ?? []) : []
     guard selectedTaskID == task.id else { return }
-    selectedTaskOptions = options
-    selectedPeers = peers
+    if selectedTaskOptions != options { selectedTaskOptions = options }
+    if selectedPeers != peers { selectedPeers = peers }
   }
 
   func pause(_ task: Aria2Task) async {

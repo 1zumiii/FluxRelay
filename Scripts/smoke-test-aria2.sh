@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ENGINE="${ARIA2_BINARY:-$ROOT_DIR/.build/app/Motrix Native.app/Contents/Resources/engine/aria2c}"
+ENGINE="${ARIA2_BINARY:-$ROOT_DIR/.build/app/FluxRelay.app/Contents/Resources/engine/aria2c}"
 TEST_ROOT="${TMPDIR:-/tmp}/motrix-native-aria2-smoke.$$"
 SOURCE_DIR="$TEST_ROOT/source"
 DOWNLOAD_DIR="$TEST_ROOT/download"

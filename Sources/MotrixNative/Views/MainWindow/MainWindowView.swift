@@ -5,8 +5,17 @@ struct MainWindowView: View {
 
   var body: some View {
     HStack(spacing: 0) {
-      sidebar
-        .frame(width: 208)
+      MainSidebarView(
+        selectedSection: model.selectedSection,
+        taskCounts: Dictionary(uniqueKeysWithValues: MainWindowModel.Filter.allCases.map {
+          ($0, model.count(for: $0))
+        }),
+        onSelect: model.select,
+        onOpenDownloads: model.openDownloadDirectory
+      )
+      .frame(width: 208)
+
+      Divider()
 
       content
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -14,70 +23,6 @@ struct MainWindowView: View {
     .background(Color(nsColor: .windowBackgroundColor))
     .sheet(isPresented: $model.showingAddTask) {
       AddTaskSheet(model: model)
-    }
-  }
-
-  private var sidebar: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Text("Motrix Native")
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(.primary)
-        .padding(.top, 42)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 22)
-
-      SidebarGroupTitle(L10n.tr("sidebar.tasks"))
-
-      VStack(spacing: 3) {
-        ForEach(MainWindowModel.Filter.allCases) { filter in
-          SidebarFilterRow(
-            filter: filter,
-            count: model.count(for: filter),
-            selected: model.selectedSection == .tasks(filter)
-          ) {
-            model.select(.tasks(filter))
-          }
-        }
-      }
-      .padding(.horizontal, 16)
-
-      Divider()
-        .padding(.horizontal, 19)
-        .padding(.vertical, 14)
-
-      SidebarGroupTitle(L10n.tr("sidebar.settings"))
-
-      VStack(spacing: 3) {
-        ForEach(MainWindowModel.PreferencesSection.allCases) { section in
-          SidebarPreferenceRow(
-            section: section,
-            selected: model.selectedSection == .preferences(section)
-          ) {
-            model.select(.preferences(section))
-          }
-        }
-      }
-      .padding(.horizontal, 16)
-
-      Spacer()
-
-      Button {
-        model.openDownloadDirectory()
-      } label: {
-        Label(L10n.tr("common.downloads_folder"), systemImage: "folder")
-          .font(.system(size: 13, weight: .medium))
-      }
-      .buttonStyle(.plain)
-      .foregroundStyle(.secondary)
-      .padding(.horizontal, 20)
-      .padding(.bottom, 22)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background {
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .fill(.regularMaterial)
-        .shadow(color: .black.opacity(0.045), radius: 14, x: 0, y: 7)
-        .padding(10)
     }
   }
 
@@ -247,116 +192,6 @@ struct MainWindowView: View {
         .foregroundStyle(.tertiary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-}
-
-private struct SidebarFilterRow: View {
-  let filter: MainWindowModel.Filter
-  let count: Int
-  let selected: Bool
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      HStack(spacing: 9) {
-        ZStack {
-          RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(filter.color.gradient)
-
-          Image(systemName: filter.systemImage)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.white)
-        }
-        .frame(width: 24, height: 24)
-
-        Text(filter.title)
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(selected ? .primary : .secondary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.9)
-
-        Spacer()
-
-        Text("\(count)")
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(selected ? .white : .secondary)
-          .padding(.horizontal, 7)
-          .padding(.vertical, 3)
-          .background {
-            Capsule()
-              .fill(selected ? Color.white.opacity(0.26) : Color.primary.opacity(0.06))
-          }
-      }
-      .padding(.horizontal, 7)
-      .padding(.vertical, 5)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .contentShape(Rectangle())
-      .background {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-          .fill(selected ? filter.color.opacity(0.22) : Color.clear)
-      }
-      .overlay {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-          .stroke(selected ? filter.color.opacity(0.3) : Color.clear, lineWidth: 1)
-      }
-    }
-    .buttonStyle(.plain)
-    .frame(maxWidth: .infinity)
-  }
-}
-
-private struct SidebarGroupTitle: View {
-  let title: String
-
-  init(_ title: String) {
-    self.title = title
-  }
-
-  var body: some View {
-    Text(title.uppercased())
-      .font(.system(size: 10, weight: .semibold))
-      .foregroundStyle(.tertiary)
-      .padding(.horizontal, 20)
-      .padding(.bottom, 6)
-  }
-}
-
-private struct SidebarPreferenceRow: View {
-  let section: MainWindowModel.PreferencesSection
-  let selected: Bool
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      HStack(spacing: 9) {
-        ZStack {
-          RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(section.color.gradient)
-
-          Image(systemName: section.systemImage)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.white)
-        }
-        .frame(width: 24, height: 24)
-
-        Text(section.title)
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(selected ? .primary : .secondary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.9)
-
-        Spacer()
-      }
-      .padding(.horizontal, 7)
-      .padding(.vertical, 5)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .contentShape(Rectangle())
-      .background {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-          .fill(selected ? section.color.opacity(0.16) : Color.clear)
-      }
-    }
-    .buttonStyle(.plain)
   }
 }
 

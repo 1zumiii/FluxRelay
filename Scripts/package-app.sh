@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_DIR="$ROOT_DIR/.build/app/Motrix Native.app"
+APP_DIR="$ROOT_DIR/.build/app/FluxRelay.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -14,7 +14,7 @@ ENGINE_MANIFEST="$ENGINE_SRC/aria2-build.json"
 EXPECTED_ARIA2_VERSION="1.37.0-git.9e72735"
 
 if [ "$(uname -m)" != "arm64" ]; then
-  echo "Motrix Native is built for Apple Silicon (arm64) only." >&2
+  echo "FluxRelay is built for Apple Silicon (arm64) only." >&2
   exit 1
 fi
 
@@ -50,16 +50,16 @@ if otool -L "$ENGINE_BINARY" | tail -n +2 | grep -vE '^[[:space:]]+(/System/Libr
 fi
 
 cd "$ROOT_DIR"
-env CLANG_MODULE_CACHE_PATH="$ROOT_DIR/.build/clang-cache" xcrun swift build -c debug --arch arm64
+env CLANG_MODULE_CACHE_PATH="$ROOT_DIR/.build/clang-cache" xcrun swift build -c release --arch arm64 --product FluxRelay
 
-if [ "$(xcrun lipo -archs "$ROOT_DIR/.build/debug/MotrixNative")" != "arm64" ]; then
-  echo "The Motrix Native executable must contain only the arm64 architecture." >&2
+if [ "$(xcrun lipo -archs "$ROOT_DIR/.build/release/FluxRelay")" != "arm64" ]; then
+  echo "The FluxRelay executable must contain only the arm64 architecture." >&2
   exit 1
 fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR/engine"
-cp "$ROOT_DIR/.build/debug/MotrixNative" "$MACOS_DIR/MotrixNative"
+cp "$ROOT_DIR/.build/release/FluxRelay" "$MACOS_DIR/FluxRelay"
 cp "$ENGINE_BINARY" "$RESOURCES_DIR/engine/aria2c"
 cp "$ENGINE_SRC/aria2.conf" "$RESOURCES_DIR/engine/aria2.conf"
 cp "$ENGINE_MANIFEST" "$RESOURCES_DIR/engine/aria2-build.json"
@@ -86,13 +86,13 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>MotrixNative</string>
+  <string>FluxRelay</string>
   <key>CFBundleIdentifier</key>
   <string>dev.codex.motrix-native</string>
   <key>CFBundleName</key>
-  <string>Motrix Native</string>
+  <string>FluxRelay</string>
   <key>CFBundleDisplayName</key>
-  <string>Motrix Native</string>
+  <string>FluxRelay</string>
   <key>CFBundleDevelopmentRegion</key>
   <string>zh-Hans</string>
   <key>CFBundlePackageType</key>
@@ -100,9 +100,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>0.2.0</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>2</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSArchitecturePriority</key>

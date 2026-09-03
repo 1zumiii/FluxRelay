@@ -42,8 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
   @MainActor
   private func installApplicationMenu() {
     let mainMenu = NSMenu()
-    let applicationMenuItem = NSMenuItem(title: "Motrix Native", action: nil, keyEquivalent: "")
-    let applicationMenu = NSMenu(title: "Motrix Native")
+    let applicationMenuItem = NSMenuItem(title: AppIdentity.displayName, action: nil, keyEquivalent: "")
+    let applicationMenu = NSMenu(title: AppIdentity.displayName)
     let quitItem = NSMenuItem(
       title: L10n.tr("status_menu.quit"),
       action: #selector(NSApplication.terminate(_:)),

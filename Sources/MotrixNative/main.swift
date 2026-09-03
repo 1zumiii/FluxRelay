@@ -2,6 +2,10 @@ import AppKit
 import Darwin
 
 if CommandLine.arguments.contains("--self-check") {
+  let appIdentityReady = Bundle.main.bundleIdentifier == "dev.codex.motrix-native"
+    && Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String == AppIdentity.displayName
+    && Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String == AppIdentity.displayName
+    && Bundle.main.executableURL?.lastPathComponent == AppIdentity.displayName
   let config = MotrixConfig.load()
   let binaryReady = config.aria2BinaryPath.map {
     FileManager.default.isExecutableFile(atPath: $0.path)
@@ -199,6 +203,8 @@ if CommandLine.arguments.contains("--self-check") {
     && aria2ConnectionLimitReady
     && aria2VersionOutput?.contains("aria2 version 1.37.0-git.9e72735") == true
   let result: [String: Any] = [
+    "appName": AppIdentity.displayName,
+    "appIdentityReady": appIdentityReady,
     "aria2Binary": config.aria2BinaryPath?.path ?? "",
     "aria2BinaryReady": binaryReady,
     "aria2Architecture": aria2Architectures,
@@ -237,7 +243,7 @@ if CommandLine.arguments.contains("--self-check") {
   let data = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
   FileHandle.standardOutput.write(data)
   FileHandle.standardOutput.write(Data("\n".utf8))
-  exit(binaryReady && aria2BuildReady && configReady && supportReady && controlFileMappingReady && pieceBitfieldReady && trackerNormalizationReady && configuredTrackerArgumentReady && cleanFileLoggingReady && logRotationReady && localizationReady && languageSwitchReady && seedingDisableReady && adaptiveStartReady && adaptiveLimitReady && adaptiveProfileLimitReady && adaptiveModesReady && adaptiveCombinationsReady && adaptiveSplitReady && proxyArgumentsReady ? 0 : 1)
+  exit(appIdentityReady && binaryReady && aria2BuildReady && configReady && supportReady && controlFileMappingReady && pieceBitfieldReady && trackerNormalizationReady && configuredTrackerArgumentReady && cleanFileLoggingReady && logRotationReady && localizationReady && languageSwitchReady && seedingDisableReady && adaptiveStartReady && adaptiveLimitReady && adaptiveProfileLimitReady && adaptiveModesReady && adaptiveCombinationsReady && adaptiveSplitReady && proxyArgumentsReady ? 0 : 1)
 }
 
 let app = NSApplication.shared

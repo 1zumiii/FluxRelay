@@ -130,12 +130,12 @@ final class Aria2Engine {
     do {
       try process.run()
       self.process = process
-      appendLog("Motrix Native launched aria2c with \(process.arguments?.count ?? 0) arguments.")
+      appendLog("\(AppIdentity.displayName) launched aria2c with \(process.arguments?.count ?? 0) arguments.")
     } catch {
       consecutiveFailures += 1
       statusText = L10n.tr("engine.start_failed")
       lastError = error.localizedDescription
-      appendLog("Motrix Native failed to launch aria2c: \(error.localizedDescription)")
+      appendLog("\(AppIdentity.displayName) failed to launch aria2c: \(error.localizedDescription)")
       self.process = nil
     }
   }
@@ -178,7 +178,7 @@ final class Aria2Engine {
   }
 
   private func appendLog(_ message: String) {
-    let line = "[Motrix Native \(Date())] \(message)\n"
+    let line = "[\(AppIdentity.displayName) \(Date())] \(message)\n"
     guard let data = line.data(using: .utf8) else {
       return
     }
