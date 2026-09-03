@@ -56,7 +56,7 @@ On the first build, or whenever the engine is updated, install the build tools n
 
 ```sh
 brew install autoconf automake libtool gettext pkgconf cppunit
-cd MotrixNative
+cd FluxRelay
 Scripts/build-aria2-arm64.sh --install
 ```
 
@@ -77,12 +77,12 @@ Scripts/package-app.sh
 The app bundle, built in Release configuration, is written to:
 
 ```text
-MotrixNative/.build/app/FluxRelay.app
+FluxRelay/.build/app/FluxRelay.app
 ```
 
 ## Source layout
 
-The repository directory and Swift module retain the historical name `MotrixNative`; the app and executable are both named `FluxRelay`.
+The GitHub repository, app, and executable are now named `FluxRelay`. The internal Swift module retains the historical name `MotrixNative`, and existing local checkouts do not need to be renamed. The paths above assume a fresh clone into a `FluxRelay` directory.
 
 The executable target follows an MVC-oriented layout under `Sources/MotrixNative`:
 

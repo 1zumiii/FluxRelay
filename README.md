@@ -38,7 +38,7 @@
 
 ```sh
 brew install autoconf automake libtool gettext pkgconf cppunit
-cd MotrixNative
+cd FluxRelay
 Scripts/build-aria2-arm64.sh --install
 ```
 
@@ -59,12 +59,12 @@ Scripts/package-app.sh
 使用 Release 配置打包的 App 会生成在：
 
 ```text
-MotrixNative/.build/app/FluxRelay.app
+FluxRelay/.build/app/FluxRelay.app
 ```
 
 ## 源码结构
 
-仓库目录与 Swift 模块暂时保留历史名称 `MotrixNative`，对外的应用名称和可执行文件均为 `FluxRelay`。
+GitHub 仓库、应用和可执行文件均已更名为 `FluxRelay`。Swift 内部模块暂时保留历史名称 `MotrixNative`，已有本地工作目录也无需改名。上面的路径示例按新克隆的仓库目录编写。
 
 可执行目标位于 `Sources/MotrixNative`，采用面向 MVC 的职责划分：
 
