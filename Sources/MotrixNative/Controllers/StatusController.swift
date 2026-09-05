@@ -24,10 +24,17 @@ final class StatusController: NSObject, NSMenuDelegate {
   private var historyRecords: [String: DownloadHistoryRecord]
   private var checksumLookupsAttempted = Set<String>()
   private var hasCreatedMainWindow = false
-  private lazy var mainWindowController = MainWindowController(config: config, client: client) { [weak self] in
-    guard let self else { return false }
-    return await self.restartEngineAndReport()
-  }
+  private lazy var mainWindowController = MainWindowController(
+    config: config,
+    client: client,
+    restartEngine: { [weak self] in
+      guard let self else { return false }
+      return await self.restartEngineAndReport()
+    },
+    settingsDidSave: { [weak self] config in
+      self?.applySettings(config)
+    }
+  )
 
   init(config: MotrixConfig, engine: Aria2Engine, client: Aria2RPCClient) {
     self.config = config
@@ -511,6 +518,14 @@ final class StatusController: NSObject, NSMenuDelegate {
       await refresh()
       return false
     }
+  }
+
+  private func applySettings(_ config: MotrixConfig) {
+    self.config = config
+    client.updateConfig(config)
+    engine.updateConfig(config)
+    adaptiveSplitController.updateConfig(config)
+    adaptiveConnectionController.updateConfig(config)
   }
 
   @objc private func refreshNow() {

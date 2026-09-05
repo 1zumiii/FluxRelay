@@ -7,8 +7,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
   private let initialContentSize: NSSize
   private var hasAppliedInitialSize = false
 
-  init(config: MotrixConfig, client: Aria2RPCClient, restartEngine: @escaping () async -> Bool = { false }) {
-    self.model = MainWindowModel(config: config, client: client, restartEngine: restartEngine)
+  init(
+    config: MotrixConfig,
+    client: Aria2RPCClient,
+    restartEngine: @escaping () async -> Bool = { false },
+    settingsDidSave: @escaping (MotrixConfig) -> Void = { _ in }
+  ) {
+    self.model = MainWindowModel(
+      config: config,
+      client: client,
+      restartEngine: restartEngine,
+      settingsDidSave: settingsDidSave
+    )
 
     let baseSize = NSSize(width: 1080, height: 720)
     let widthReduction = 0.85 * 0.90

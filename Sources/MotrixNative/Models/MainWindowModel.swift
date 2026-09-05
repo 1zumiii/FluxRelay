@@ -219,10 +219,16 @@ final class MainWindowModel: ObservableObject {
   private var pendingTaskMetadata: [String: DownloadTaskMetadata] = [:]
   private var liveTaskIDs = Set<String>()
   private let restartEngineAction: () async -> Bool
+  private let settingsDidSave: (MotrixConfig) -> Void
   private var refreshTimer: Timer?
   private let refreshCoalescer = RefreshCoalescer()
 
-  init(config: MotrixConfig, client: Aria2RPCClient, restartEngine: @escaping () async -> Bool = { false }) {
+  init(
+    config: MotrixConfig,
+    client: Aria2RPCClient,
+    restartEngine: @escaping () async -> Bool = { false },
+    settingsDidSave: @escaping (MotrixConfig) -> Void = { _ in }
+  ) {
     self.config = config
     self.client = client
     self.settings = SettingsDraft(config: config)
@@ -230,6 +236,7 @@ final class MainWindowModel: ObservableObject {
     self.historyStore = historyStore
     self.historyRecords = historyStore.load()
     self.restartEngineAction = restartEngine
+    self.settingsDidSave = settingsDidSave
   }
 
   var filteredTasks: [Aria2Task] {
@@ -668,6 +675,7 @@ final class MainWindowModel: ObservableObject {
       config = config.updating(system: system, user: user)
       settings = SettingsDraft(config: config)
       client.updateConfig(config)
+      settingsDidSave(config)
       L10n.configure(language: settings.appLanguage)
       let changes = settings.changeSummary(comparedTo: previousSettings)
       settingsFeedback = SettingsFeedback(
