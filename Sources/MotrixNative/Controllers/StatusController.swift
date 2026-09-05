@@ -20,8 +20,14 @@ final class StatusController: NSObject, NSMenuDelegate {
   private var hasEstablishedTaskBaseline = false
   private var knownCompletedTaskIDs = Set<String>()
   private var unreadCompletedTaskIDs = Set<String>()
+  private let historyStore: DownloadHistoryStore
+  private var historyRecords: [String: DownloadHistoryRecord]
+  private var checksumLookupsAttempted = Set<String>()
   private var hasCreatedMainWindow = false
-  private lazy var mainWindowController = MainWindowController(config: config, client: client)
+  private lazy var mainWindowController = MainWindowController(config: config, client: client) { [weak self] in
+    guard let self else { return false }
+    return await self.restartEngineAndReport()
+  }
 
   init(config: MotrixConfig, engine: Aria2Engine, client: Aria2RPCClient) {
     self.config = config
@@ -29,6 +35,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     self.client = client
     self.adaptiveSplitController = AdaptiveSplitController(config: config, client: client)
     self.adaptiveConnectionController = AdaptiveConnectionController(config: config, client: client)
+    let historyStore = DownloadHistoryStore(supportDirectory: config.supportDirectory)
+    self.historyStore = historyStore
+    self.historyRecords = historyStore.load()
     super.init()
   }
 
@@ -81,6 +90,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     do {
       let globalStat = try await client.getGlobalStat()
       let tasks = try await client.listTasks(stat: globalStat)
+      await persistTerminalHistory(tasks)
       CompletedControlFileCleaner.clean(tasks: tasks)
       let newlyCompletedIDs = updateCompletionState(with: tasks)
       if !newlyCompletedIDs.isEmpty, MotrixConfig.load().taskNotificationsEnabled {
@@ -140,6 +150,30 @@ final class StatusController: NSObject, NSMenuDelegate {
     menu.addItem(engineMenuItem())
     menu.addItem(NSMenuItem.separator())
     menu.addItem(NSMenuItem(title: L10n.tr("status_menu.quit"), action: #selector(quit), keyEquivalent: "q", target: self))
+  }
+
+  private func persistTerminalHistory(_ tasks: [Aria2Task]) async {
+    guard tasks.contains(where: \.isTerminal) else { return }
+    historyRecords = historyStore.load()
+    var changed = false
+    for task in tasks where task.isTerminal {
+      let existing = historyRecords[task.id]
+      var checksum = existing?.checksum
+      if task.status == "complete", checksum == nil, !checksumLookupsAttempted.contains(task.id) {
+        checksumLookupsAttempted.insert(task.id)
+        if let options = try? await client.getOption(task.id) {
+          checksum = options["checksum"]
+        }
+      }
+      let updated = DownloadHistoryRecord(task: task, existing: existing, checksum: checksum)
+      if historyRecords[task.id] != updated {
+        historyRecords[task.id] = updated
+        changed = true
+      }
+    }
+    if changed {
+      try? historyStore.save(historyRecords)
+    }
   }
 
   private func headerItem() -> NSMenuItem {
@@ -457,15 +491,25 @@ final class StatusController: NSObject, NSMenuDelegate {
   }
 
   @objc private func restartEngine() {
-    Task {
-      let latestConfig = MotrixConfig.load()
-      config = latestConfig
-      client.updateConfig(latestConfig)
-      engine.updateConfig(latestConfig)
-      adaptiveSplitController.updateConfig(latestConfig)
-      adaptiveConnectionController.updateConfig(latestConfig)
-      await engine.restart(client: client)
+    Task { _ = await restartEngineAndReport() }
+  }
+
+  private func restartEngineAndReport() async -> Bool {
+    let latestConfig = MotrixConfig.load()
+    config = latestConfig
+    client.updateConfig(latestConfig)
+    engine.updateConfig(latestConfig)
+    adaptiveSplitController.updateConfig(latestConfig)
+    adaptiveConnectionController.updateConfig(latestConfig)
+    await engine.restart(client: client)
+
+    do {
+      _ = try await client.getGlobalStat()
       await refresh()
+      return true
+    } catch {
+      await refresh()
+      return false
     }
   }
 

@@ -8,9 +8,19 @@ struct MainSidebarView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text(AppIdentity.displayName)
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(.primary)
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(AppIdentity.displayName)
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(.primary)
+
+        Spacer(minLength: 4)
+
+        Text(AppIdentity.versionLabel)
+          .font(.system(size: 11, weight: .medium, design: .rounded))
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+          .accessibilityLabel("Version \(AppIdentity.version)")
+      }
         .padding(.horizontal, 24)
         .padding(.top, 38)
         .padding(.bottom, 26)

@@ -21,4 +21,8 @@ enum Formatting {
 
     return String(format: "%.1f %@", value, units[index])
   }
+
+  static func date(_ date: Date) -> String {
+    date.formatted(date: .abbreviated, time: .shortened)
+  }
 }

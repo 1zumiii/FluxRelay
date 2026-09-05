@@ -27,6 +27,11 @@ struct PreferencesView: View {
       }
       .scrollIndicators(.hidden)
 
+      if let feedback = model.settingsFeedback {
+        settingsFeedbackView(feedback)
+          .padding(.top, 10)
+      }
+
       Divider()
 
       HStack(spacing: 10) {
@@ -48,6 +53,64 @@ struct PreferencesView: View {
       }
       .padding(.top, 14)
     }
+  }
+
+  @ViewBuilder
+  private func settingsFeedbackView(_ feedback: SettingsFeedback) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if !feedback.applied.isEmpty {
+        Label(
+          L10n.format(
+            "preferences.applied_notice",
+            feedback.applied.joined(separator: L10n.tr("common.list_separator"))
+          ),
+          systemImage: "checkmark.circle.fill"
+        )
+        .foregroundStyle(.green)
+      }
+
+      if !feedback.restartRequired.isEmpty {
+        HStack(alignment: .top, spacing: 10) {
+          Label(
+            L10n.format(
+              "preferences.restart_notice",
+              feedback.restartRequired.joined(separator: L10n.tr("common.list_separator"))
+            ),
+            systemImage: "arrow.clockwise.circle"
+          )
+          .foregroundStyle(.orange)
+          .fixedSize(horizontal: false, vertical: true)
+
+          Spacer()
+
+          Button(
+            model.isRestartingEngine
+              ? L10n.tr("preferences.restart_in_progress")
+              : L10n.tr("preferences.restart_action")
+          ) {
+            model.restartEngine()
+          }
+          .disabled(model.isRestartingEngine)
+          .buttonStyle(.borderedProminent)
+          .tint(.orange)
+        }
+      }
+
+      if feedback.applied.isEmpty && feedback.restartRequired.isEmpty {
+        Label(L10n.tr("preferences.no_changes"), systemImage: "minus.circle")
+          .foregroundStyle(.secondary)
+      }
+
+      if model.restartEngineFailed {
+        Label(L10n.tr("preferences.restart_failed"), systemImage: "exclamationmark.triangle.fill")
+          .foregroundStyle(.red)
+      }
+    }
+    .font(.system(size: 12, weight: .medium))
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color(nsColor: .controlBackgroundColor).opacity(0.65), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
   }
 
   private var generalSettings: some View {

@@ -52,6 +52,7 @@
 "common.file_name" = "文件名";
 "common.files" = "文件";
 "common.loading" = "读取中...";
+"common.list_separator" = "、";
 "common.not_found" = "未找到";
 "common.not_set" = "未设置";
 "engine_info.title" = "FluxRelay 引擎信息";
@@ -130,6 +131,12 @@
 "preferences.save_metadata.subtitle" = "将获取到的元数据保存为 torrent 文件";
 "preferences.save_metadata.title" = "保存磁力链接元数据";
 "preferences.saved_notice" = "设置已保存，部分项目将在引擎重启后生效";
+"preferences.applied_notice" = "已立即生效：%@";
+"preferences.restart_notice" = "需要重启下载引擎：%@";
+"preferences.restart_action" = "立即重启下载引擎";
+"preferences.restart_in_progress" = "正在重启下载引擎...";
+"preferences.restart_failed" = "下载引擎重启失败，请重试";
+"preferences.no_changes" = "没有检测到设置变化";
 "preferences.section.bittorrent.subtitle" = "元数据、做种与 Tracker";
 "preferences.section.connection" = "连接";
 "preferences.section.connection.subtitle" = "代理、RPC 与监听端口";
@@ -181,6 +188,12 @@
 "task_detail.active_connections" = "活动连接";
 "task_detail.back" = "返回任务列表";
 "task_detail.bittorrent_network" = "BitTorrent 网络";
+"task_detail.checksum_failed" = "校验失败";
+"task_detail.checksum_not_configured" = "未设置校验值";
+"task_detail.checksum_passed" = "校验通过";
+"task_detail.checksum_pending" = "等待校验";
+"task_detail.checksum_result" = "校验结果";
+"task_detail.completed_at" = "完成时间";
 "task_detail.copy_gid" = "复制 GID";
 "task_detail.information" = "任务信息";
 "task_detail.location_and_source" = "位置与来源";

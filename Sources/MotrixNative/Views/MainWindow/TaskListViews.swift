@@ -57,6 +57,12 @@ struct TaskCard: View {
             Text("\(Formatting.bytes(task.completedLength)) / \(Formatting.bytes(task.totalLength))")
               .font(.system(size: 12))
               .foregroundStyle(.secondary)
+
+            if let completionDate = task.completionDate {
+              Text(Formatting.date(completionDate))
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+            }
           }
           .frame(width: 170, alignment: .trailing)
 
@@ -308,4 +314,3 @@ struct ErrorBanner: View {
     }
   }
 }
-

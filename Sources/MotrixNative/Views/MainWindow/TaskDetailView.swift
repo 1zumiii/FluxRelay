@@ -49,6 +49,16 @@ struct TaskDetailView: View {
               DetailRow(title: L10n.tr("task_detail.server"), value: task.sourceHost ?? "-")
               DetailDivider()
               DetailRow(title: L10n.tr("task_detail.gid"), value: task.id, monospaced: true)
+              if let completionDate = task.completionDate {
+                DetailDivider()
+                DetailRow(title: L10n.tr("task_detail.completed_at"), value: Formatting.date(completionDate))
+              }
+              DetailDivider()
+              DetailRow(title: L10n.tr("task_detail.checksum_result"), value: task.checksumResult.title)
+              if let checksum = task.checksum, !checksum.isEmpty {
+                DetailDivider()
+                DetailRow(title: L10n.tr("add_task.checksum"), value: checksum, monospaced: true)
+              }
             }
             .frame(maxWidth: .infinity)
           }

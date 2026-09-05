@@ -52,6 +52,7 @@
 "common.file_name" = "File Name";
 "common.files" = "Files";
 "common.loading" = "Loading...";
+"common.list_separator" = ", ";
 "common.not_found" = "Not Found";
 "common.not_set" = "Not Set";
 "engine_info.title" = "FluxRelay Engine Information";
@@ -130,6 +131,12 @@
 "preferences.save_metadata.subtitle" = "Save retrieved metadata as a torrent file";
 "preferences.save_metadata.title" = "Save Magnet Metadata";
 "preferences.saved_notice" = "Settings saved. Some changes apply after restarting the engine.";
+"preferences.applied_notice" = "Applied immediately: %@";
+"preferences.restart_notice" = "Restart the download engine to apply: %@";
+"preferences.restart_action" = "Restart Download Engine";
+"preferences.restart_in_progress" = "Restarting Download Engine...";
+"preferences.restart_failed" = "The download engine could not restart. Try again.";
+"preferences.no_changes" = "No setting changes detected";
 "preferences.section.bittorrent.subtitle" = "Metadata, seeding, and trackers";
 "preferences.section.connection" = "Connection";
 "preferences.section.connection.subtitle" = "Proxy, RPC, and listening ports";
@@ -181,6 +188,12 @@
 "task_detail.active_connections" = "Active Connections";
 "task_detail.back" = "Back to Task List";
 "task_detail.bittorrent_network" = "BitTorrent Network";
+"task_detail.checksum_failed" = "Checksum Failed";
+"task_detail.checksum_not_configured" = "Checksum Not Configured";
+"task_detail.checksum_passed" = "Checksum Passed";
+"task_detail.checksum_pending" = "Checksum Pending";
+"task_detail.checksum_result" = "Checksum Result";
+"task_detail.completed_at" = "Completed";
 "task_detail.copy_gid" = "Copy GID";
 "task_detail.information" = "Task Information";
 "task_detail.location_and_source" = "Location & Source";

@@ -20,6 +20,57 @@ struct Aria2Task: Identifiable {
   let trackers: [String]
   let files: [[String: Any]]
   let isBitTorrent: Bool
+  let completionDate: Date?
+  let checksum: String?
+  let checksumResult: ChecksumResult
+
+  init(
+    id: String,
+    status: String,
+    totalLength: Int64,
+    completedLength: Int64,
+    uploadLength: Int64,
+    downloadSpeed: Int64,
+    uploadSpeed: Int64,
+    connections: Int,
+    pieceLength: Int64,
+    numPieces: Int,
+    bitfield: String,
+    errorCode: String,
+    errorMessage: String,
+    directory: String,
+    bitTorrentName: String?,
+    infoHash: String,
+    trackers: [String],
+    files: [[String: Any]],
+    isBitTorrent: Bool,
+    completionDate: Date? = nil,
+    checksum: String? = nil,
+    checksumResult: ChecksumResult = .notConfigured
+  ) {
+    self.id = id
+    self.status = status
+    self.totalLength = totalLength
+    self.completedLength = completedLength
+    self.uploadLength = uploadLength
+    self.downloadSpeed = downloadSpeed
+    self.uploadSpeed = uploadSpeed
+    self.connections = connections
+    self.pieceLength = pieceLength
+    self.numPieces = numPieces
+    self.bitfield = bitfield
+    self.errorCode = errorCode
+    self.errorMessage = errorMessage
+    self.directory = directory
+    self.bitTorrentName = bitTorrentName
+    self.infoHash = infoHash
+    self.trackers = trackers
+    self.files = files
+    self.isBitTorrent = isBitTorrent
+    self.completionDate = completionDate
+    self.checksum = checksum
+    self.checksumResult = checksumResult
+  }
 
   var name: String {
     if let bitTorrentName, !bitTorrentName.isEmpty {
@@ -92,12 +143,31 @@ struct Aria2Task: Identifiable {
     return nil
   }
 
+  var historySearchText: String {
+    [
+      name,
+      sourceURI,
+      directory,
+      primaryFileURL?.path,
+      completionDate.map(Formatting.date),
+      checksum,
+      checksumResult.title,
+      checksumResult.rawValue
+    ]
+    .compactMap { $0 }
+    .joined(separator: " ")
+  }
+
   var fileDetails: [Aria2TaskFile] {
     files.compactMap(Aria2TaskFile.init)
   }
 
   var isSeeding: Bool {
     isBitTorrent && status == "active" && totalLength > 0 && completedLength >= totalLength
+  }
+
+  var isTerminal: Bool {
+    status == "complete" || status == "error" || status == "removed"
   }
 
   var pieceCompletion: [Bool] {
@@ -155,7 +225,37 @@ struct Aria2Task: Identifiable {
       infoHash: infoHash,
       trackers: trackers,
       files: files,
-      isBitTorrent: isBitTorrent
+      isBitTorrent: isBitTorrent,
+      completionDate: completionDate,
+      checksum: checksum,
+      checksumResult: checksumResult
+    )
+  }
+
+  func applyingHistoryMetadata(_ record: DownloadHistoryRecord) -> Aria2Task {
+    Aria2Task(
+      id: id,
+      status: status,
+      totalLength: totalLength,
+      completedLength: completedLength,
+      uploadLength: uploadLength,
+      downloadSpeed: downloadSpeed,
+      uploadSpeed: uploadSpeed,
+      connections: connections,
+      pieceLength: pieceLength,
+      numPieces: numPieces,
+      bitfield: bitfield,
+      errorCode: errorCode,
+      errorMessage: errorMessage,
+      directory: directory,
+      bitTorrentName: bitTorrentName,
+      infoHash: infoHash,
+      trackers: trackers,
+      files: files,
+      isBitTorrent: isBitTorrent,
+      completionDate: record.completedAt,
+      checksum: record.checksum,
+      checksumResult: record.checksumResult
     )
   }
 
@@ -166,13 +266,17 @@ struct Aria2Task: Identifiable {
 
     let bitTorrent = dictionary["bittorrent"] as? [String: Any]
     let bitTorrentInfo = bitTorrent?["info"] as? [String: Any]
+    let status = dictionary["status"] as? String ?? "unknown"
+    let errorCode = dictionary["errorCode"] as? String ?? "0"
+    let errorMessage = dictionary["errorMessage"] as? String ?? ""
+    let checksum = dictionary["checksum"] as? String
     let trackers = (bitTorrent?["announceList"] as? [[String]] ?? [])
       .flatMap { $0 }
       .filter { !$0.isEmpty }
 
     return Aria2Task(
       id: gid,
-      status: dictionary["status"] as? String ?? "unknown",
+      status: status,
       totalLength: Int64(dictionary["totalLength"] as? String ?? "0") ?? 0,
       completedLength: Int64(dictionary["completedLength"] as? String ?? "0") ?? 0,
       uploadLength: Int64(dictionary["uploadLength"] as? String ?? "0") ?? 0,
@@ -182,14 +286,22 @@ struct Aria2Task: Identifiable {
       pieceLength: Int64(dictionary["pieceLength"] as? String ?? "0") ?? 0,
       numPieces: Int(dictionary["numPieces"] as? String ?? "0") ?? 0,
       bitfield: dictionary["bitfield"] as? String ?? "",
-      errorCode: dictionary["errorCode"] as? String ?? "0",
-      errorMessage: dictionary["errorMessage"] as? String ?? "",
+      errorCode: errorCode,
+      errorMessage: errorMessage,
       directory: dictionary["dir"] as? String ?? "",
       bitTorrentName: bitTorrentInfo?["name"] as? String,
       infoHash: dictionary["infoHash"] as? String ?? "",
       trackers: Array(Set(trackers)).sorted(),
       files: dictionary["files"] as? [[String: Any]] ?? [],
-      isBitTorrent: bitTorrent != nil
+      isBitTorrent: bitTorrent != nil,
+      completionDate: nil,
+      checksum: checksum,
+      checksumResult: ChecksumResult.infer(
+        checksum: checksum,
+        status: status,
+        errorCode: errorCode,
+        errorMessage: errorMessage
+      )
     )
   }
 }
@@ -360,13 +472,13 @@ final class Aria2RPCClient {
     return result
   }
 
-  func addURI(_ uri: String, directory: URL, additionalOptions: [String: Any] = [:]) async throws {
+  func addURI(_ uri: String, directory: URL, additionalOptions: [String: Any] = [:]) async throws -> String {
     var options: [String: Any] = additionalOptions
     options["dir"] = directory.path
     for (key, value) in config.adaptiveTaskOptions(for: uri) {
       options[key] = value
     }
-    let _: String = try await call("aria2.addUri", params: [[uri], options])
+    return try await call("aria2.addUri", params: [[uri], options])
   }
 
   @discardableResult

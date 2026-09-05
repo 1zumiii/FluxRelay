@@ -38,6 +38,11 @@ struct PreparedTorrent: Identifiable {
   let files: [Aria2TaskFile]
 }
 
+struct SettingsFeedback: Equatable {
+  var applied: [String]
+  var restartRequired: [String]
+}
+
 private enum NewTaskError: LocalizedError {
   case noTorrentFiles
   case noFilesSelected
@@ -203,16 +208,28 @@ final class MainWindowModel: ObservableObject {
   @Published private(set) var selectedTaskOptions: [String: String] = [:]
   @Published var settings = SettingsDraft()
   @Published var settingsSaved = false
+  @Published private(set) var settingsFeedback: SettingsFeedback?
+  @Published private(set) var isRestartingEngine = false
+  @Published private(set) var restartEngineFailed = false
   @Published private(set) var isTestingProxy = false
   @Published private(set) var proxyTestMessage: String?
 
+  private let historyStore: DownloadHistoryStore
+  private var historyRecords: [String: DownloadHistoryRecord]
+  private var pendingTaskMetadata: [String: DownloadTaskMetadata] = [:]
+  private var liveTaskIDs = Set<String>()
+  private let restartEngineAction: () async -> Bool
   private var refreshTimer: Timer?
   private let refreshCoalescer = RefreshCoalescer()
 
-  init(config: MotrixConfig, client: Aria2RPCClient) {
+  init(config: MotrixConfig, client: Aria2RPCClient, restartEngine: @escaping () async -> Bool = { false }) {
     self.config = config
     self.client = client
     self.settings = SettingsDraft(config: config)
+    let historyStore = DownloadHistoryStore(supportDirectory: config.supportDirectory)
+    self.historyStore = historyStore
+    self.historyRecords = historyStore.load()
+    self.restartEngineAction = restartEngine
   }
 
   var filteredTasks: [Aria2Task] {
@@ -238,8 +255,7 @@ final class MainWindowModel: ObservableObject {
     let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     if !query.isEmpty {
       result = result.filter {
-        $0.name.localizedCaseInsensitiveContains(query) ||
-          ($0.primaryFileURL?.path.localizedCaseInsensitiveContains(query) ?? false)
+        $0.historySearchText.localizedCaseInsensitiveContains(query)
       }
     }
 
@@ -369,12 +385,14 @@ final class MainWindowModel: ObservableObject {
     do {
       let latestStat = try await client.getGlobalStat()
       let latestTasks = try await client.listTasks(stat: latestStat)
-      tasks = latestTasks
-      let retainedIDs = selectedTaskIDs.intersection(Set(latestTasks.map(\.id)))
+      let allTasks = reconcileHistory(with: latestTasks)
+      tasks = allTasks
+      let retainedIDs = selectedTaskIDs.intersection(Set(allTasks.map(\.id)))
       if selectedTaskIDs != retainedIDs { selectedTaskIDs = retainedIDs }
       let displayedStat = latestStat.usingActiveTaskSpeeds(latestTasks)
       if globalStat != displayedStat { globalStat = displayedStat }
-      if let selectedTaskID, let selected = latestTasks.first(where: { $0.id == selectedTaskID }) {
+      if let selectedTaskID, let selected = allTasks.first(where: { $0.id == selectedTaskID }),
+         latestTasks.contains(where: { $0.id == selectedTaskID }) {
         await refreshDetails(for: selected)
       } else {
         if !selectedTaskOptions.isEmpty { selectedTaskOptions = [:] }
@@ -387,6 +405,56 @@ final class MainWindowModel: ObservableObject {
     }
   }
 
+  private func reconcileHistory(with latestTasks: [Aria2Task]) -> [Aria2Task] {
+    var changed = false
+    let liveIDs = Set(latestTasks.map(\.id))
+    liveTaskIDs = liveIDs
+
+    for task in latestTasks {
+      let metadata = pendingTaskMetadata.removeValue(forKey: task.id)
+      let updated: DownloadHistoryRecord
+      if let existing = historyRecords[task.id], !task.isTerminal {
+        updated = existing.updatingMetadata(
+          from: task,
+          sourceURI: metadata?.sourceURI,
+          checksum: metadata?.checksum
+        )
+      } else {
+        updated = DownloadHistoryRecord(
+          task: task,
+          existing: historyRecords[task.id],
+          sourceURI: metadata?.sourceURI,
+          checksum: metadata?.checksum
+        )
+      }
+      if historyRecords[task.id] != updated {
+        historyRecords[task.id] = updated
+        changed = true
+      }
+    }
+
+    if changed {
+      try? historyStore.save(historyRecords)
+    }
+
+    let displayedLiveTasks = latestTasks.map { task in
+      historyRecords[task.id].map { task.applyingHistoryMetadata($0) } ?? task
+    }
+    let historyTasks = historyRecords.values
+      .filter { $0.isTerminal && !liveIDs.contains($0.id) }
+      .sorted {
+        switch ($0.completedAt, $1.completedAt) {
+        case let (left?, right?): return left > right
+        case (_?, nil): return true
+        case (nil, _?): return false
+        default: return $0.id < $1.id
+        }
+      }
+      .map { $0.task() }
+
+    return displayedLiveTasks + historyTasks
+  }
+
   @discardableResult
   func addLink(_ uri: String, options: NewDownloadOptions? = nil) async -> Bool {
     let uri = uri.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -396,10 +464,16 @@ final class MainWindowModel: ObservableObject {
 
     let options = options ?? NewDownloadOptions(directory: config.downloadDirectory)
     do {
-      try await client.addURI(
+      let gid = try await client.addURI(
         uri,
         directory: options.directory,
         additionalOptions: options.aria2Options
+      )
+      pendingTaskMetadata[gid] = DownloadTaskMetadata(
+        sourceURI: uri,
+        checksum: options.checksum.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          ? nil
+          : options.checksum.trimmingCharacters(in: .whitespacesAndNewlines)
       )
       await refresh()
       return true
@@ -429,6 +503,7 @@ final class MainWindowModel: ObservableObject {
       guard let gid, !files.isEmpty else {
         throw NewTaskError.noTorrentFiles
       }
+      pendingTaskMetadata[gid] = DownloadTaskMetadata(sourceURI: fileURL.path, checksum: nil)
       await refresh()
       return PreparedTorrent(id: gid, sourceURL: fileURL, directory: directory, files: files)
     } catch {
@@ -471,6 +546,8 @@ final class MainWindowModel: ObservableObject {
   }
 
   func discardPreparedTorrent(_ torrent: PreparedTorrent) async {
+    pendingTaskMetadata.removeValue(forKey: torrent.id)
+    removeHistory([torrent.id])
     try? await client.remove(torrent.id)
     await refresh()
   }
@@ -550,9 +627,11 @@ final class MainWindowModel: ObservableObject {
     guard !completed.isEmpty, TaskRemovalConfirmation.confirmClearingCompleted(count: completed.count) else {
       return
     }
-    await performBatch(completed) { task in
+    await performBatch(completed.filter { liveTaskIDs.contains($0.id) }) { task in
       try await client.removeDownloadResult(task.id)
     }
+    removeHistory(completed.map(\.id))
+    await refresh()
   }
 
   func reveal(_ task: Aria2Task) {
@@ -582,12 +661,20 @@ final class MainWindowModel: ObservableObject {
 
   func saveSettings() {
     do {
+      let previousSettings = SettingsDraft(config: config)
       let system = settings.systemConfig(basedOn: config.systemConfig)
       let user = settings.userConfig(basedOn: config.userConfig)
       try config.save(system: system, user: user)
       config = config.updating(system: system, user: user)
       settings = SettingsDraft(config: config)
+      client.updateConfig(config)
       L10n.configure(language: settings.appLanguage)
+      let changes = settings.changeSummary(comparedTo: previousSettings)
+      settingsFeedback = SettingsFeedback(
+        applied: changes.immediate.map(L10n.tr),
+        restartRequired: changes.restart.map(L10n.tr)
+      )
+      restartEngineFailed = false
       settingsSaved = true
 
       do {
@@ -604,6 +691,30 @@ final class MainWindowModel: ObservableObject {
     } catch {
       let alert = NSAlert(error: error)
       alert.runModal()
+    }
+  }
+
+  var settingsNeedsEngineRestart: Bool {
+    !(settingsFeedback?.restartRequired.isEmpty ?? true)
+  }
+
+  func restartEngine() {
+    guard settingsNeedsEngineRestart, !isRestartingEngine else { return }
+    isRestartingEngine = true
+    restartEngineFailed = false
+    Task { @MainActor in
+      let succeeded = await restartEngineAction()
+      isRestartingEngine = false
+      if succeeded {
+        if let feedback = settingsFeedback {
+          settingsFeedback = SettingsFeedback(
+            applied: feedback.applied + feedback.restartRequired,
+            restartRequired: []
+          )
+        }
+      } else {
+        restartEngineFailed = true
+      }
     }
   }
 
@@ -660,6 +771,8 @@ final class MainWindowModel: ObservableObject {
     settings = SettingsDraft(config: config)
     L10n.configure(language: settings.appLanguage)
     settingsSaved = false
+    settingsFeedback = nil
+    restartEngineFailed = false
     proxyTestMessage = nil
   }
 
@@ -693,23 +806,35 @@ final class MainWindowModel: ObservableObject {
     do {
       for target in targets {
         let files = deletingFiles ? removableFiles(for: target) : []
-        if target.status == "complete" || target.status == "error" || target.status == "removed" {
-          try await client.removeDownloadResult(target.id)
-        } else {
-          try await client.remove(target.id)
-          try? await Task.sleep(for: .milliseconds(80))
-          try? await client.removeDownloadResult(target.id)
+        if liveTaskIDs.contains(target.id) {
+          if target.status == "complete" || target.status == "error" || target.status == "removed" {
+            try await client.removeDownloadResult(target.id)
+          } else {
+            try await client.remove(target.id)
+            try? await Task.sleep(for: .milliseconds(80))
+            try? await client.removeDownloadResult(target.id)
+          }
         }
         if deletingFiles {
           try moveToTrash(files)
         }
       }
+      removeHistory(targets.map(\.id))
       selectedTaskIDs.subtract(targets.map(\.id))
       await refresh()
     } catch {
       NSAlert(error: error).runModal()
       await refresh()
     }
+  }
+
+  private func removeHistory(_ ids: [String]) {
+    guard !ids.isEmpty else { return }
+    ids.forEach {
+      pendingTaskMetadata.removeValue(forKey: $0)
+      historyRecords.removeValue(forKey: $0)
+    }
+    try? historyStore.save(historyRecords)
   }
 
   private func removableFiles(for task: Aria2Task) -> [URL] {
@@ -847,6 +972,50 @@ struct SettingsDraft {
       result["keep-seeding"] = false
     }
     return result
+  }
+
+  func changeSummary(comparedTo previous: SettingsDraft) -> (immediate: [String], restart: [String]) {
+    var immediate: [String] = []
+    var restart: [String] = []
+
+    func addImmediate(_ key: String, when changed: Bool) {
+      if changed { immediate.append(key) }
+    }
+
+    func addRestart(_ key: String, when changed: Bool) {
+      if changed { restart.append(key) }
+    }
+
+    addImmediate("preferences.open_at_login.title", when: openAtLogin != previous.openAtLogin)
+    addImmediate("preferences.notifications.title", when: taskNotification != previous.taskNotification)
+    addImmediate("preferences.language.title", when: appLanguage != previous.appLanguage)
+    addImmediate("preferences.default_pause.title", when: pause != previous.pause)
+    addImmediate("preferences.skip_removal_confirmation.title", when: noConfirmBeforeDeleteTask != previous.noConfirmBeforeDeleteTask)
+    addImmediate("adaptive_split.title", when: adaptiveSplits != previous.adaptiveSplits)
+    addImmediate("adaptive_connection.title", when: adaptiveConnections != previous.adaptiveConnections)
+    addImmediate("preferences.download_folder.title", when: downloadDirectory != previous.downloadDirectory)
+
+    addRestart("transfer.download_speed", when: maxOverallDownloadLimit != previous.maxOverallDownloadLimit)
+    addRestart("transfer.upload_speed", when: maxOverallUploadLimit != previous.maxOverallUploadLimit)
+    addRestart("preferences.concurrent_downloads.title", when: maxConcurrentDownloads != previous.maxConcurrentDownloads)
+    addRestart("preferences.connections_per_server.title", when: maxConnectionPerServer != previous.maxConnectionPerServer)
+    addRestart("preferences.split.title", when: split != previous.split)
+    addRestart("preferences.continue.title", when: continueDownloads != previous.continueDownloads)
+    addRestart("preferences.save_metadata.title", when: btSaveMetadata != previous.btSaveMetadata)
+    addRestart("preferences.force_encryption.title", when: btForceEncryption != previous.btForceEncryption)
+    addRestart("preferences.seeding_enabled.title", when: seedingEnabled != previous.seedingEnabled)
+    addRestart("bittorrent.seed_ratio", when: seedRatio != previous.seedRatio)
+    addRestart("preferences.seed_time.title", when: seedTime != previous.seedTime)
+    addRestart("preferences.trackers.custom_list", when: btTracker != previous.btTracker)
+    addRestart("preferences.rpc_port.title", when: rpcPort != previous.rpcPort)
+    addRestart("preferences.rpc_secret.title", when: rpcSecret != previous.rpcSecret)
+    addRestart("preferences.bt_port.title", when: listenPort != previous.listenPort)
+    addRestart("preferences.dht_port.title", when: dhtListenPort != previous.dhtListenPort)
+    addRestart("preferences.proxy.mode.title", when: proxyMode.rawValue != previous.proxyMode.rawValue)
+    addRestart("preferences.proxy.scheme.title", when: proxyScheme.rawValue != previous.proxyScheme.rawValue)
+    addRestart("preferences.proxy.server.title", when: proxyHost != previous.proxyHost || proxyPort != previous.proxyPort)
+
+    return (immediate, restart)
   }
 
   private static func string(_ value: Any?, fallback: String) -> String {
