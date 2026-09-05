@@ -5,7 +5,7 @@ import XCTest
 final class AppIdentityTests: XCTestCase {
   func testLocalizedProductNames() throws {
     XCTAssertEqual(AppIdentity.displayName, "FluxRelay")
-    XCTAssertEqual(AppIdentity.version, "0.2.0")
+    XCTAssertEqual(AppIdentity.version, "0.3.0")
     XCTAssertFalse(AppIdentity.version.isEmpty)
     XCTAssertEqual(AppIdentity.versionLabel, "v\(AppIdentity.version)")
     let root = URL(fileURLWithPath: #filePath)

@@ -2,7 +2,7 @@
 
 FluxRelay is a native macOS menu bar download manager built with SwiftUI and AppKit. It bundles its own arm64 aria2 engine and provides lightweight task management, detailed download views, and a system-level menu bar experience.
 
-The current packaged version is `0.2.0`. It requires Apple Silicon (arm64) and macOS 14 or later.
+The current packaged version is `0.3.0`. It requires Apple Silicon (arm64) and macOS 14 or later.
 
 [简体中文](README.md) | English
 

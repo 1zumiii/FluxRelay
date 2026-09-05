@@ -2,7 +2,7 @@
 
 FluxRelay 是一款使用 SwiftUI 和 AppKit 构建的 macOS 原生菜单栏下载工具。应用内置独立的 arm64 aria2 引擎，提供轻量的任务管理界面、完整的任务详情和系统级菜单栏体验。
 
-当前打包版本为 `0.2.0`，支持 Apple Silicon（arm64）和 macOS 14 或更高版本。
+当前打包版本为 `0.3.0`，支持 Apple Silicon（arm64）和 macOS 14 或更高版本。
 
 简体中文 | [English](README.en.md)
 

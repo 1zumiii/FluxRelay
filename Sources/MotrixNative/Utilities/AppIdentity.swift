@@ -9,7 +9,7 @@ enum AppIdentity {
       let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
       !value.isEmpty
     else {
-      return "0.2.0"
+      return "0.3.0"
     }
     return value
   }()
