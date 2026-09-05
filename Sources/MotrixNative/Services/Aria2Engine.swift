@@ -74,12 +74,45 @@ final class Aria2Engine {
     }
   }
 
-  func restart(client: Aria2RPCClient) async {
-    stop()
+  func restart(client: Aria2RPCClient, config nextConfig: MotrixConfig) async -> Bool {
+    // Never report that an external engine was restarted, or switch credentials
+    // before saving the session through the endpoint that owns the running job.
+    if let ownedProcess = process, ownedProcess.isRunning {
+      do {
+        try await client.saveSession()
+        try await client.shutdown()
+      } catch {
+        lastError = error.localizedDescription
+        return false
+      }
+      for _ in 0..<40 where ownedProcess.isRunning {
+        try? await Task.sleep(for: .milliseconds(100))
+      }
+      guard !ownedProcess.isRunning else {
+        lastError = L10n.tr("preferences.restart_failed")
+        return false
+      }
+    } else if await canConnect(client: client) {
+      lastError = L10n.tr("preferences.restart_failed")
+      return false
+    }
     process = nil
     consecutiveFailures = 0
     lastStartAttempt = nil
-    await ensureRunning(client: client, force: true)
+    config = nextConfig
+    client.updateConfig(nextConfig)
+    startBundledAria2()
+    guard let startedProcess = process else { return false }
+    for _ in 0..<25 {
+      try? await Task.sleep(for: .milliseconds(200))
+      guard startedProcess.isRunning else { return false }
+      if await canConnect(client: client) {
+        statusText = L10n.tr("engine.rpc_connected")
+        lastError = nil
+        return true
+      }
+    }
+    return false
   }
 
   private func canConnect(client: Aria2RPCClient) async -> Bool {

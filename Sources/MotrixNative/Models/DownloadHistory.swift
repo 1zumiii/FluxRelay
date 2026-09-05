@@ -5,6 +5,7 @@ enum ChecksumResult: String, Codable, Equatable {
   case pending
   case passed
   case failed
+  case unknown
 
   var localizationKey: String {
     switch self {
@@ -12,6 +13,7 @@ enum ChecksumResult: String, Codable, Equatable {
     case .pending: return "task_detail.checksum_pending"
     case .passed: return "task_detail.checksum_passed"
     case .failed: return "task_detail.checksum_failed"
+    case .unknown: return "task_detail.checksum_unknown"
     }
   }
 
@@ -25,17 +27,13 @@ enum ChecksumResult: String, Codable, Equatable {
     errorCode: String,
     errorMessage: String
   ) -> ChecksumResult {
+    if status == "error", errorCode == "32" { return .failed }
     guard let checksum, !checksum.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       return .notConfigured
     }
 
     if status == "complete" {
       return .passed
-    }
-
-    let normalizedError = errorMessage.lowercased()
-    if status == "error" && (errorCode == "19" || normalizedError.contains("checksum") || normalizedError.contains("hash")) {
-      return .failed
     }
 
     return .pending
@@ -46,6 +44,8 @@ struct DownloadHistoryFile: Codable, Equatable {
   let path: String
   let length: Int64
   let completedLength: Int64
+  var selected: Bool? = nil
+  var uris: [String]? = nil
 }
 
 struct DownloadHistoryRecord: Codable, Equatable, Identifiable {
@@ -63,6 +63,7 @@ struct DownloadHistoryRecord: Codable, Equatable, Identifiable {
   var completedAt: Date?
   var checksum: String?
   var checksumResult: ChecksumResult
+  var checksumKnown: Bool? = nil
   var isBitTorrent: Bool
   var infoHash: String
   var trackers: [String]
@@ -76,15 +77,24 @@ struct DownloadHistoryRecord: Codable, Equatable, Identifiable {
 
   func updatingMetadata(from task: Aria2Task, sourceURI: String?, checksum: String?) -> DownloadHistoryRecord {
     var result = self
+    result.status = task.status
+    result.errorCode = task.errorCode
+    result.errorMessage = task.errorMessage
+    if !task.isSeeding {
+      result.completedAt = nil
+    } else if result.completedAt == nil, result.completedLength < task.totalLength {
+      result.completedAt = Date()
+    }
     result.name = task.name
     if !task.directory.isEmpty { result.directory = task.directory }
     if result.files.isEmpty, !task.fileDetails.isEmpty {
       result.files = task.fileDetails.map {
-        DownloadHistoryFile(path: $0.path, length: $0.length, completedLength: $0.completedLength)
+        DownloadHistoryFile(path: $0.path, length: $0.length, completedLength: $0.completedLength, selected: $0.isSelected)
       }
     }
-    result.sourceURI = sourceURI ?? task.sourceURI ?? result.sourceURI
+    result.sourceURI = sourceURI ?? result.sourceURI ?? task.sourceURI
     result.checksum = checksum ?? task.checksum ?? result.checksum
+    result.checksumResult = ChecksumResult.infer(checksum: result.checksum, status: task.status, errorCode: task.errorCode, errorMessage: task.errorMessage)
     return result
   }
 
@@ -92,7 +102,8 @@ struct DownloadHistoryRecord: Codable, Equatable, Identifiable {
     task: Aria2Task,
     existing: DownloadHistoryRecord? = nil,
     sourceURI: String? = nil,
-    checksum: String? = nil
+    checksum: String? = nil,
+    checksumKnown: Bool? = nil
   ) {
     id = task.id
     name = task.name
@@ -103,25 +114,35 @@ struct DownloadHistoryRecord: Codable, Equatable, Identifiable {
     errorCode = task.errorCode
     errorMessage = task.errorMessage
     directory = task.directory.isEmpty ? (existing?.directory ?? "") : task.directory
-    let taskFiles = task.fileDetails.map {
-      DownloadHistoryFile(path: $0.path, length: $0.length, completedLength: $0.completedLength)
+    let taskFiles = task.files.compactMap { file -> DownloadHistoryFile? in
+      guard let detail = Aria2TaskFile(file) else { return nil }
+      return DownloadHistoryFile(path: detail.path, length: detail.length, completedLength: detail.completedLength,
+        selected: detail.isSelected, uris: (file["uris"] as? [[String: Any]])?.compactMap { $0["uri"] as? String })
     }
     files = taskFiles.isEmpty ? (existing?.files ?? []) : taskFiles
-    self.sourceURI = sourceURI ?? task.sourceURI ?? existing?.sourceURI
-    completedAt = task.status == "complete" ? (existing?.completedAt ?? Date()) : nil
+    self.sourceURI = sourceURI ?? existing?.sourceURI ?? task.sourceURI
+    // aria2 has no completion timestamp. Date() is valid only for an observed
+    // transition; importing an already-complete task must not invent its date.
+    if task.status == "complete" || task.isSeeding {
+      completedAt = existing?.completedAt ?? (existing != nil && existing?.status != "complete" ? Date() : nil)
+    } else {
+      completedAt = nil
+    }
     self.checksum = checksum ?? task.checksum ?? existing?.checksum
+    self.checksumKnown = checksumKnown ?? existing?.checksumKnown ?? (self.checksum != nil ? true : nil)
     checksumResult = ChecksumResult.infer(
       checksum: self.checksum,
       status: task.status,
       errorCode: task.errorCode,
       errorMessage: task.errorMessage
     )
+    if self.checksum == nil, self.checksumKnown != true, checksumResult != .failed { checksumResult = .unknown }
     isBitTorrent = task.isBitTorrent
     infoHash = task.infoHash
     trackers = task.trackers
     pieceLength = task.pieceLength
     numPieces = task.numPieces
-    bitfield = task.bitfield
+    bitfield = ""
   }
 
   func task() -> Aria2Task {
@@ -131,7 +152,8 @@ struct DownloadHistoryRecord: Codable, Equatable, Identifiable {
         "path": file.path,
         "length": "\(file.length)",
         "completedLength": "\(file.completedLength)",
-        "selected": "true"
+        "selected": (file.selected ?? true) ? "true" : "false",
+        "uris": (file.uris ?? []).map { ["uri": $0] }
       ] as [String: Any]
     }
 
@@ -147,7 +169,7 @@ struct DownloadHistoryRecord: Codable, Equatable, Identifiable {
           "uris": [["uri": sourceURI]]
         ]]
       } else {
-        for index in taskFiles.indices where taskFiles[index]["uris"] == nil {
+        for index in taskFiles.indices where (taskFiles[index]["uris"] as? [[String: String]] ?? []).isEmpty {
           taskFiles[index]["uris"] = [["uri": sourceURI]]
         }
       }
@@ -175,14 +197,10 @@ struct DownloadHistoryRecord: Codable, Equatable, Identifiable {
       isBitTorrent: isBitTorrent,
       completionDate: completedAt,
       checksum: checksum,
-      checksumResult: checksumResult
+      checksumResult: checksumResult,
+      recordedSourceURI: sourceURI
     )
   }
-}
-
-struct DownloadTaskMetadata {
-  let sourceURI: String?
-  let checksum: String?
 }
 
 struct DownloadHistoryStore {
@@ -193,16 +211,29 @@ struct DownloadHistoryStore {
   }
 
   func load() -> [String: DownloadHistoryRecord] {
-    guard
-      let data = try? Data(contentsOf: fileURL),
-      let payload = try? decoder.decode(Payload.self, from: data)
-    else {
-      return [:]
-    }
-    return Dictionary(payload.records.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+    (try? loadChecked()) ?? [:]
   }
 
-  func save(_ records: [String: DownloadHistoryRecord]) throws {
+  func loadChecked() throws -> [String: DownloadHistoryRecord] {
+    try loadState().records
+  }
+
+  func loadState() throws -> (records: [String: DownloadHistoryRecord], removedIDs: Set<String>) {
+    guard FileManager.default.fileExists(atPath: fileURL.path) else { return ([:], []) }
+    let data = try Data(contentsOf: fileURL)
+    let payload = try decoder.decode(Payload.self, from: data)
+    let records = payload.records.map { saved in
+      var record = saved
+      record.checksumResult = ChecksumResult.infer(checksum: record.checksum, status: record.status, errorCode: record.errorCode, errorMessage: record.errorMessage)
+      if record.checksum == nil, record.checksumKnown != true, record.checksumResult != .failed {
+        record.checksumResult = .unknown
+      }
+      return (record.id, record)
+    }
+    return (Dictionary(records, uniquingKeysWith: { _, latest in latest }), Set(payload.removedIDs ?? []))
+  }
+
+  func save(_ records: [String: DownloadHistoryRecord], removedIDs: Set<String> = []) throws {
     let payload = Payload(records: records.values.sorted {
       switch ($0.completedAt, $1.completedAt) {
       case let (left?, right?):
@@ -212,7 +243,7 @@ struct DownloadHistoryStore {
       default: break
       }
       return $0.id < $1.id
-    })
+    }, removedIDs: removedIDs.sorted())
     let data = try encoder.encode(payload)
     try FileManager.default.createDirectory(
       at: fileURL.deletingLastPathComponent(),
@@ -223,6 +254,7 @@ struct DownloadHistoryStore {
 
   private struct Payload: Codable {
     let records: [DownloadHistoryRecord]
+    var removedIDs: [String]? = nil
   }
 
   private var encoder: JSONEncoder {

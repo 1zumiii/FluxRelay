@@ -4,6 +4,8 @@ import XCTest
 
 final class DownloadHistoryTests: XCTestCase {
   func testChecksumInference() {
+    XCTAssertEqual(ChecksumResult.infer(checksum: "sha-256=abc", status: "error", errorCode: "19", errorMessage: "Name resolution failed"), .pending)
+    XCTAssertEqual(ChecksumResult.infer(checksum: nil, status: "error", errorCode: "32", errorMessage: ""), .failed)
     XCTAssertEqual(
       ChecksumResult.infer(checksum: nil, status: "complete", errorCode: "0", errorMessage: ""),
       .notConfigured
@@ -13,7 +15,7 @@ final class DownloadHistoryTests: XCTestCase {
       .passed
     )
     XCTAssertEqual(
-      ChecksumResult.infer(checksum: "sha-256=abc", status: "error", errorCode: "19", errorMessage: ""),
+      ChecksumResult.infer(checksum: "sha-256=abc", status: "error", errorCode: "32", errorMessage: ""),
       .failed
     )
     XCTAssertEqual(
@@ -25,6 +27,7 @@ final class DownloadHistoryTests: XCTestCase {
   func testHistoryStoreRoundTripPreservesSearchMetadata() throws {
     let supportDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("fluxrelay-history-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: supportDirectory) }
     let filePath = supportDirectory.appendingPathComponent("archive/report.zip").path
     let source = "https://downloads.example.test/archive/report.zip"
     let task = Aria2Task(
@@ -91,5 +94,28 @@ final class DownloadHistoryTests: XCTestCase {
     XCTAssertTrue(summary.immediate.contains("preferences.download_folder.title"))
     XCTAssertTrue(summary.restart.contains("preferences.rpc_port.title"))
     XCTAssertTrue(summary.restart.contains("preferences.proxy.mode.title"))
+  }
+
+  func testResumedHistoryNoLongerLooksCompleted() throws {
+    let task = try XCTUnwrap(Aria2Task.from(["gid": "a", "status": "complete"]))
+    var record = DownloadHistoryRecord(task: task)
+    record.completedAt = Date()
+    let resumed = record.updatingMetadata(from: task.updating(status: "active", downloadSpeed: 0, uploadSpeed: 0), sourceURI: nil, checksum: nil)
+    XCTAssertFalse(resumed.isTerminal)
+    XCTAssertNil(resumed.completedAt)
+  }
+
+  func testAllFileLocationsSourcesAndSelectionSurviveRoundTrip() throws {
+    let task = try XCTUnwrap(Aria2Task.from([
+      "gid": "multi", "status": "complete", "files": [
+        ["path": "/tmp/first", "selected": "true", "uris": [["uri": "https://first.test"]]],
+        ["path": "/tmp/second", "selected": "false", "uris": [["uri": "https://second.test"]]]
+      ]
+    ]))
+    let restored = DownloadHistoryRecord(task: task).task()
+    XCTAssertTrue(restored.historySearchText.contains("/tmp/second"))
+    XCTAssertTrue(restored.historySearchText.contains("https://second.test"))
+    XCTAssertFalse(restored.fileDetails[1].isSelected)
+    XCTAssertEqual(restored.checksumResult, .unknown)
   }
 }

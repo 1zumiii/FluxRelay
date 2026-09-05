@@ -45,9 +45,12 @@ struct PreferencesView: View {
           model.resetSettings()
         }
 
+        .disabled(model.isRestartingEngine)
+
         Button(L10n.tr("action.save_changes")) {
           model.saveSettings()
         }
+        .disabled(model.isRestartingEngine)
         .buttonStyle(.borderedProminent)
         .tint(.teal)
       }

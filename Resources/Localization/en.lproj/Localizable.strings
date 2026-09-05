@@ -73,7 +73,7 @@
 "preferences.bt_port.title" = "BT Listening Port";
 "preferences.concurrent_downloads.subtitle" = "Number of tasks allowed to run simultaneously";
 "preferences.concurrent_downloads.title" = "Concurrent Downloads";
-"preferences.connection.info" = "The first launch inherits Motrix's ports and secret. FluxRelay stores them independently afterward. Save changes and restart the engine from the menu bar to apply them.";
+"preferences.connection.info" = "FluxRelay stores its connection settings independently. Save changes, then use Restart Engine below to apply the pending settings.";
 "preferences.connections_per_server.title" = "Connections per Server";
 "preferences.connections_per_server.adaptive_subtitle" = "Maximum allowed while probing connections";
 "preferences.connections_per_server.fixed_subtitle" = "Fixed connection limit for each server";
@@ -317,3 +317,6 @@
 "preferences.language.system" = "System Default";
 "preferences.language.title" = "Language";
 "transfer.uploaded" = "Uploaded";
+
+"history.save_failed" = "Could not save download history: %@";
+"task_detail.checksum_unknown" = "Unknown";

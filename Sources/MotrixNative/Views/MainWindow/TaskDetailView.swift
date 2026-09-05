@@ -255,7 +255,7 @@ struct TaskDetailView: View {
   }
 
   private func effectiveOption(_ key: String) -> String {
-    model.selectedTaskOptions[key] ?? L10n.tr("common.loading")
+    model.selectedTaskOptions[key] ?? (task.isTerminal ? "—" : L10n.tr("common.loading"))
   }
 
   private var bitTorrentSummary: some View {

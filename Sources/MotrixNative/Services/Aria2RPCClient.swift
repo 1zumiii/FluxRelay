@@ -23,6 +23,7 @@ struct Aria2Task: Identifiable {
   let completionDate: Date?
   let checksum: String?
   let checksumResult: ChecksumResult
+  let recordedSourceURI: String?
 
   init(
     id: String,
@@ -46,7 +47,8 @@ struct Aria2Task: Identifiable {
     isBitTorrent: Bool,
     completionDate: Date? = nil,
     checksum: String? = nil,
-    checksumResult: ChecksumResult = .notConfigured
+    checksumResult: ChecksumResult = .notConfigured,
+    recordedSourceURI: String? = nil
   ) {
     self.id = id
     self.status = status
@@ -70,6 +72,7 @@ struct Aria2Task: Identifiable {
     self.completionDate = completionDate
     self.checksum = checksum
     self.checksumResult = checksumResult
+    self.recordedSourceURI = recordedSourceURI
   }
 
   var name: String {
@@ -132,6 +135,7 @@ struct Aria2Task: Identifiable {
   }
 
   var sourceURI: String? {
+    if let recordedSourceURI { return recordedSourceURI }
     for file in files {
       guard let uris = file["uris"] as? [[String: Any]] else {
         continue
@@ -144,16 +148,19 @@ struct Aria2Task: Identifiable {
   }
 
   var historySearchText: String {
-    [
+    ([
       name,
       sourceURI,
       directory,
       primaryFileURL?.path,
       completionDate.map(Formatting.date),
+      completionDate.map { ISO8601DateFormatter().string(from: $0) },
       checksum,
       checksumResult.title,
       checksumResult.rawValue
-    ]
+    ] + files.flatMap { file -> [String?] in
+      [file["path"] as? String] + ((file["uris"] as? [[String: Any]]) ?? []).map { $0["uri"] as? String }
+    })
     .compactMap { $0 }
     .joined(separator: " ")
   }
@@ -228,7 +235,8 @@ struct Aria2Task: Identifiable {
       isBitTorrent: isBitTorrent,
       completionDate: completionDate,
       checksum: checksum,
-      checksumResult: checksumResult
+      checksumResult: checksumResult,
+      recordedSourceURI: recordedSourceURI
     )
   }
 
@@ -255,8 +263,21 @@ struct Aria2Task: Identifiable {
       isBitTorrent: isBitTorrent,
       completionDate: record.completedAt,
       checksum: record.checksum,
-      checksumResult: record.checksumResult
+      checksumResult: record.checksumResult,
+      recordedSourceURI: record.sourceURI
     )
+  }
+
+  /// Carry cached file metadata without loading per-file progress or piece maps
+  /// on every list refresh. The details panel fetches an up-to-date full task.
+  func withCachedFiles(_ cached: Aria2Task) -> Aria2Task {
+    Aria2Task(id: id, status: status, totalLength: totalLength,
+      completedLength: completedLength, uploadLength: uploadLength,
+      downloadSpeed: downloadSpeed, uploadSpeed: uploadSpeed, connections: connections,
+      pieceLength: pieceLength, numPieces: numPieces, bitfield: "",
+      errorCode: errorCode, errorMessage: errorMessage, directory: directory,
+      bitTorrentName: bitTorrentName, infoHash: infoHash, trackers: trackers,
+      files: cached.files, isBitTorrent: isBitTorrent)
   }
 
   static func from(_ dictionary: [String: Any]) -> Aria2Task? {
@@ -388,19 +409,26 @@ enum Aria2RPCError: Error {
 @MainActor
 final class Aria2RPCClient {
   private var config: MotrixConfig
+  private(set) var runningConfig: MotrixConfig
   private let session: URLSession
   private var requestID = 0
 
   init(config: MotrixConfig, session: URLSession = .shared) {
     self.config = config
+    self.runningConfig = config
     self.session = session
   }
 
   var endpoint: URL? {
-    URL(string: "http://127.0.0.1:\(config.rpcPort)/jsonrpc")
+    URL(string: "http://127.0.0.1:\(runningConfig.rpcPort)/jsonrpc")
   }
 
   func updateConfig(_ config: MotrixConfig) {
+    self.config = config
+    self.runningConfig = config
+  }
+
+  func updateDefaults(_ config: MotrixConfig) {
     self.config = config
   }
 
@@ -420,22 +448,25 @@ final class Aria2RPCClient {
   /// `stat` may be supplied when the caller already fetched a global snapshot.
   /// The counts are used only as a pagination bound; an empty or short page still
   /// terminates pagination so a queue changing while it is being read cannot loop.
-  func listTasks(stat: Aria2GlobalStat? = nil) async throws -> [Aria2Task] {
+  func listTasks(stat: Aria2GlobalStat? = nil, summaryOnly: Bool = false) async throws -> [Aria2Task] {
     let snapshot: Aria2GlobalStat
     if let stat {
       snapshot = stat
     } else {
       snapshot = try await getGlobalStat()
     }
-    let active: [[String: Any]] = try await call("aria2.tellActive")
+    let keys = summaryOnly ? Self.summaryKeys : nil
+    let active: [[String: Any]] = try await call("aria2.tellActive", params: keys.map { [$0] } ?? [])
     let waiting = try await paginatedTasks(
       method: "aria2.tellWaiting",
       count: snapshot.waiting,
+      keys: keys,
       offset: { page in page * 100 }
     )
     let stopped = try await paginatedTasks(
       method: "aria2.tellStopped",
       count: snapshot.stopped,
+      keys: keys,
       offset: { page in -1 - page * 100 }
     )
 
@@ -451,6 +482,7 @@ final class Aria2RPCClient {
   private func paginatedTasks(
     method: String,
     count: Int,
+    keys: [String]? = nil,
     offset: (Int) -> Int
   ) async throws -> [[String: Any]] {
     guard count > 0 else { return [] }
@@ -463,13 +495,26 @@ final class Aria2RPCClient {
     while result.count < count {
       let items: [[String: Any]] = try await call(
         method,
-        params: [offset(page), pageSize]
+        params: [offset(page), pageSize] + (keys.map { [$0] } ?? [])
       )
       result.append(contentsOf: items)
       page += 1
       if items.isEmpty || items.count < pageSize { break }
     }
     return result
+  }
+
+  static let summaryKeys = [
+    "gid", "status", "totalLength", "completedLength", "uploadLength",
+    "downloadSpeed", "uploadSpeed", "connections", "pieceLength", "numPieces",
+    "errorCode", "errorMessage", "dir", "bittorrent", "infoHash"
+  ]
+
+  func getTask(_ gid: String, includeBitfield: Bool = true) async throws -> Aria2Task {
+    let keys = Self.summaryKeys + ["files"] + (includeBitfield ? ["bitfield"] : [])
+    let result: [String: Any] = try await call("aria2.tellStatus", params: [gid, keys])
+    guard let task = Aria2Task.from(result) else { throw Aria2RPCError.invalidResponse }
+    return task
   }
 
   func addURI(_ uri: String, directory: URL, additionalOptions: [String: Any] = [:]) async throws -> String {
@@ -548,8 +593,8 @@ final class Aria2RPCClient {
 
     requestID += 1
     var finalParams: [Any] = params
-    if !config.rpcSecret.isEmpty {
-      finalParams.insert("token:\(config.rpcSecret)", at: 0)
+    if !runningConfig.rpcSecret.isEmpty {
+      finalParams.insert("token:\(runningConfig.rpcSecret)", at: 0)
     }
 
     let payload: [String: Any] = [

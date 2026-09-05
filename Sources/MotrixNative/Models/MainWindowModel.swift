@@ -203,6 +203,7 @@ final class MainWindowModel: ObservableObject {
   @Published var selectedTaskIDs = Set<String>()
   @Published var errorText: String?
   @Published var showingAddTask = false
+  @Published private var detailedTask: Aria2Task?
   @Published var selectedTaskID: String?
   @Published private(set) var selectedPeers: [Aria2Peer] = []
   @Published private(set) var selectedTaskOptions: [String: String] = [:]
@@ -214,29 +215,32 @@ final class MainWindowModel: ObservableObject {
   @Published private(set) var isTestingProxy = false
   @Published private(set) var proxyTestMessage: String?
 
-  private let historyStore: DownloadHistoryStore
-  private var historyRecords: [String: DownloadHistoryRecord]
-  private var pendingTaskMetadata: [String: DownloadTaskMetadata] = [:]
-  private var liveTaskIDs = Set<String>()
+  let snapshots: TaskSnapshotStore
+  private var snapshotObserver: UUID?
+  private var detailsRefreshTask: Task<Void, Never>?
+  private var isRefreshing = false
+  private var liveTaskIDs: Set<String> { Set(snapshots.liveTasks.map(\.id)) }
+  private var runningSettings: SettingsDraft
   private let restartEngineAction: () async -> Bool
   private let settingsDidSave: (MotrixConfig) -> Void
-  private var refreshTimer: Timer?
-  private let refreshCoalescer = RefreshCoalescer()
 
   init(
     config: MotrixConfig,
     client: Aria2RPCClient,
+    snapshots: TaskSnapshotStore? = nil,
     restartEngine: @escaping () async -> Bool = { false },
     settingsDidSave: @escaping (MotrixConfig) -> Void = { _ in }
   ) {
     self.config = config
     self.client = client
     self.settings = SettingsDraft(config: config)
-    let historyStore = DownloadHistoryStore(supportDirectory: config.supportDirectory)
-    self.historyStore = historyStore
-    self.historyRecords = historyStore.load()
+    self.runningSettings = SettingsDraft(config: client.runningConfig)
+    self.snapshots = snapshots ?? TaskSnapshotStore(config: config, client: client)
     self.restartEngineAction = restartEngine
     self.settingsDidSave = settingsDidSave
+    self.tasks = self.snapshots.tasks
+    self.snapshotObserver = self.snapshots.observe { [weak self] in self?.receiveSnapshot() }
+    updateSettingsFeedback(applied: [])
   }
 
   var filteredTasks: [Aria2Task] {
@@ -293,7 +297,10 @@ final class MainWindowModel: ObservableObject {
 
   var selectedTask: Aria2Task? {
     guard let selectedTaskID else { return nil }
-    return tasks.first { $0.id == selectedTaskID }
+    let summary = tasks.first { $0.id == selectedTaskID }
+    if let detailedTask, detailedTask.id == selectedTaskID,
+       detailedTask.status == summary?.status, liveTaskIDs.contains(selectedTaskID) { return detailedTask }
+    return summary
   }
 
   var selectedTasks: [Aria2Task] {
@@ -301,7 +308,7 @@ final class MainWindowModel: ObservableObject {
   }
 
   var defaultDownloadDirectory: URL { config.downloadDirectory }
-  var defaultPauseAtStart: Bool { settings.pause }
+  var defaultPauseAtStart: Bool { SettingsDraft(config: config).pause }
 
   func count(for filter: Filter) -> Int {
     switch filter {
@@ -319,6 +326,7 @@ final class MainWindowModel: ObservableObject {
   }
 
   func select(_ section: Section) {
+    detailedTask = nil
     selectedTaskID = nil
     selectedTaskOptions = [:]
     selectedPeers = []
@@ -330,6 +338,7 @@ final class MainWindowModel: ObservableObject {
   }
 
   func showDetails(_ task: Aria2Task) {
+    detailedTask = nil
     selectedTaskID = task.id
     selectedTaskOptions = [:]
     selectedPeers = []
@@ -359,6 +368,8 @@ final class MainWindowModel: ObservableObject {
   }
 
   func closeDetails() {
+    detailedTask = nil
+    detailsRefreshTask?.cancel()
     selectedTaskID = nil
     selectedTaskOptions = [:]
     selectedPeers = []
@@ -370,96 +381,37 @@ final class MainWindowModel: ObservableObject {
   }
 
   func startRefreshing() {
-    refreshTimer?.invalidate()
-    refreshTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-      Task { @MainActor in
-        await self?.refresh(queueFollowUp: false)
-      }
-    }
+    isRefreshing = true
+    receiveSnapshot()
     Task { await refresh() }
   }
 
   func stopRefreshing() {
-    refreshTimer?.invalidate()
-    refreshTimer = nil
+    isRefreshing = false
+    detailsRefreshTask?.cancel()
   }
 
   func refresh(queueFollowUp: Bool = true) async {
-    await refreshCoalescer.run(queueFollowUp: queueFollowUp) { [self] in await refreshSnapshot() }
+    await snapshots.refresh(queueFollowUp: queueFollowUp)
   }
 
-  private func refreshSnapshot() async {
-    do {
-      let latestStat = try await client.getGlobalStat()
-      let latestTasks = try await client.listTasks(stat: latestStat)
-      let allTasks = reconcileHistory(with: latestTasks)
-      tasks = allTasks
-      let retainedIDs = selectedTaskIDs.intersection(Set(allTasks.map(\.id)))
-      if selectedTaskIDs != retainedIDs { selectedTaskIDs = retainedIDs }
-      let displayedStat = latestStat.usingActiveTaskSpeeds(latestTasks)
-      if globalStat != displayedStat { globalStat = displayedStat }
-      if let selectedTaskID, let selected = allTasks.first(where: { $0.id == selectedTaskID }),
-         latestTasks.contains(where: { $0.id == selectedTaskID }) {
-        await refreshDetails(for: selected)
-      } else {
-        if !selectedTaskOptions.isEmpty { selectedTaskOptions = [:] }
-        if !selectedPeers.isEmpty { selectedPeers = [] }
-      }
-      if errorText != nil { errorText = nil }
-    } catch {
-      let message = L10n.tr("engine.rpc_disconnected")
-      if errorText != message { errorText = message }
-    }
-  }
-
-  private func reconcileHistory(with latestTasks: [Aria2Task]) -> [Aria2Task] {
-    var changed = false
-    let liveIDs = Set(latestTasks.map(\.id))
-    liveTaskIDs = liveIDs
-
-    for task in latestTasks {
-      let metadata = pendingTaskMetadata.removeValue(forKey: task.id)
-      let updated: DownloadHistoryRecord
-      if let existing = historyRecords[task.id], !task.isTerminal {
-        updated = existing.updatingMetadata(
-          from: task,
-          sourceURI: metadata?.sourceURI,
-          checksum: metadata?.checksum
-        )
-      } else {
-        updated = DownloadHistoryRecord(
-          task: task,
-          existing: historyRecords[task.id],
-          sourceURI: metadata?.sourceURI,
-          checksum: metadata?.checksum
-        )
-      }
-      if historyRecords[task.id] != updated {
-        historyRecords[task.id] = updated
-        changed = true
-      }
-    }
-
-    if changed {
-      try? historyStore.save(historyRecords)
-    }
-
-    let displayedLiveTasks = latestTasks.map { task in
-      historyRecords[task.id].map { task.applyingHistoryMetadata($0) } ?? task
-    }
-    let historyTasks = historyRecords.values
-      .filter { $0.isTerminal && !liveIDs.contains($0.id) }
-      .sorted {
-        switch ($0.completedAt, $1.completedAt) {
-        case let (left?, right?): return left > right
-        case (_?, nil): return true
-        case (nil, _?): return false
-        default: return $0.id < $1.id
+  private func receiveSnapshot() {
+    tasks = snapshots.tasks
+    selectedTaskIDs.formIntersection(Set(tasks.map(\.id)))
+    globalStat = snapshots.stat
+    errorText = snapshots.errorText
+    if isRefreshing, let selectedTaskID,
+       let selected = tasks.first(where: { $0.id == selectedTaskID }), liveTaskIDs.contains(selectedTaskID) {
+      if detailsRefreshTask == nil {
+        detailsRefreshTask = Task { [weak self] in
+          await self?.refreshDetails(for: selected)
+          self?.detailsRefreshTask = nil
         }
       }
-      .map { $0.task() }
-
-    return displayedLiveTasks + historyTasks
+    } else {
+      selectedTaskOptions = [:]
+      selectedPeers = []
+    }
   }
 
   @discardableResult
@@ -476,7 +428,7 @@ final class MainWindowModel: ObservableObject {
         directory: options.directory,
         additionalOptions: options.aria2Options
       )
-      pendingTaskMetadata[gid] = DownloadTaskMetadata(
+      snapshots.register(gid,
         sourceURI: uri,
         checksum: options.checksum.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           ? nil
@@ -510,12 +462,14 @@ final class MainWindowModel: ObservableObject {
       guard let gid, !files.isEmpty else {
         throw NewTaskError.noTorrentFiles
       }
-      pendingTaskMetadata[gid] = DownloadTaskMetadata(sourceURI: fileURL.path, checksum: nil)
+      snapshots.register(gid, sourceURI: fileURL.path, checksum: nil)
       await refresh()
       return PreparedTorrent(id: gid, sourceURL: fileURL, directory: directory, files: files)
     } catch {
       if let gid {
         try? await client.remove(gid)
+        try? await client.removeDownloadResult(gid)
+        removeHistory([gid])
       }
       NSAlert(error: error).runModal()
       await refresh()
@@ -541,6 +495,7 @@ final class MainWindowModel: ObservableObject {
         .map(String.init)
         .joined(separator: ",")
       try await client.changeOption(torrent.id, options: ["select-file": selected])
+      snapshots.invalidateFiles(torrent.id)
       if !pauseAtStart {
         try await client.unpause(torrent.id)
       }
@@ -553,16 +508,22 @@ final class MainWindowModel: ObservableObject {
   }
 
   func discardPreparedTorrent(_ torrent: PreparedTorrent) async {
-    pendingTaskMetadata.removeValue(forKey: torrent.id)
-    removeHistory([torrent.id])
     try? await client.remove(torrent.id)
+    try? await client.removeDownloadResult(torrent.id)
+    removeHistory([torrent.id])
     await refresh()
   }
 
   private func refreshDetails(for task: Aria2Task) async {
-    let options = (try? await client.getOption(task.id)) ?? [:]
+    guard liveTaskIDs.contains(task.id) else { return }
+    let fullTask = try? await client.getTask(task.id)
+    let options = task.isTerminal ? [:] : ((try? await client.getOption(task.id)) ?? [:])
     let peers = task.isBitTorrent ? ((try? await client.getPeers(task.id)) ?? []) : []
-    guard selectedTaskID == task.id else { return }
+    guard selectedTaskID == task.id, !Task.isCancelled else { return }
+    if let fullTask {
+      snapshots.cacheDetails(fullTask)
+      detailedTask = snapshots.decorate(fullTask)
+    }
     if selectedTaskOptions != options { selectedTaskOptions = options }
     if selectedPeers != peers { selectedPeers = peers }
   }
@@ -634,16 +595,12 @@ final class MainWindowModel: ObservableObject {
     guard !completed.isEmpty, TaskRemovalConfirmation.confirmClearingCompleted(count: completed.count) else {
       return
     }
-    await performBatch(completed.filter { liveTaskIDs.contains($0.id) }) { task in
-      try await client.removeDownloadResult(task.id)
-    }
-    removeHistory(completed.map(\.id))
-    await refresh()
+    await removeTasks(completed, deletingFiles: false)
   }
 
   func reveal(_ task: Aria2Task) {
     guard let url = task.primaryFileURL else {
-      NSWorkspace.shared.open(config.downloadDirectory)
+      NSWorkspace.shared.open(task.directory.isEmpty ? config.downloadDirectory : URL(fileURLWithPath: task.directory))
       return
     }
 
@@ -667,6 +624,7 @@ final class MainWindowModel: ObservableObject {
   }
 
   func saveSettings() {
+    guard !isRestartingEngine else { return }
     do {
       let previousSettings = SettingsDraft(config: config)
       let system = settings.systemConfig(basedOn: config.systemConfig)
@@ -674,26 +632,26 @@ final class MainWindowModel: ObservableObject {
       try config.save(system: system, user: user)
       config = config.updating(system: system, user: user)
       settings = SettingsDraft(config: config)
-      client.updateConfig(config)
+      client.updateDefaults(config)
       settingsDidSave(config)
       L10n.configure(language: settings.appLanguage)
       let changes = settings.changeSummary(comparedTo: previousSettings)
-      settingsFeedback = SettingsFeedback(
-        applied: changes.immediate.map(L10n.tr),
-        restartRequired: changes.restart.map(L10n.tr)
-      )
+      updateSettingsFeedback(applied: changes.immediate)
       restartEngineFailed = false
       settingsSaved = true
 
       do {
-        try LoginItemManager.apply(settings.openAtLogin)
+        if settings.openAtLogin != previousSettings.openAtLogin {
+          try LoginItemManager.apply(settings.openAtLogin)
+        }
       } catch {
+        settingsFeedback?.applied.removeAll { $0 == L10n.tr("preferences.open_at_login.title") }
         let alert = NSAlert(error: error)
         alert.messageText = L10n.tr("login_item.update_failed")
         alert.runModal()
       }
 
-      if settings.taskNotification {
+      if settings.taskNotification && !previousSettings.taskNotification {
         TaskNotificationManager.requestAuthorization()
       }
     } catch {
@@ -710,10 +668,12 @@ final class MainWindowModel: ObservableObject {
     guard settingsNeedsEngineRestart, !isRestartingEngine else { return }
     isRestartingEngine = true
     restartEngineFailed = false
+    let requestedSettings = SettingsDraft(config: config)
     Task { @MainActor in
       let succeeded = await restartEngineAction()
       isRestartingEngine = false
       if succeeded {
+        runningSettings = requestedSettings
         if let feedback = settingsFeedback {
           settingsFeedback = SettingsFeedback(
             applied: feedback.applied + feedback.restartRequired,
@@ -775,11 +735,29 @@ final class MainWindowModel: ObservableObject {
     }
   }
 
+  func engineDidRestart(_ config: MotrixConfig) {
+    guard !isRestartingEngine else { return }
+    let applied = settingsFeedback?.restartRequired ?? []
+    runningSettings = SettingsDraft(config: config)
+    updateSettingsFeedback(applied: [])
+    if !applied.isEmpty {
+      settingsFeedback = SettingsFeedback(applied: applied, restartRequired: settingsFeedback?.restartRequired ?? [])
+    }
+  }
+
+  private func updateSettingsFeedback(applied: [String]) {
+    let pending = SettingsDraft(config: config).changeSummary(comparedTo: runningSettings).restart
+    settingsFeedback = applied.isEmpty && pending.isEmpty ? nil : SettingsFeedback(
+      applied: applied.map(L10n.tr), restartRequired: pending.map(L10n.tr)
+    )
+  }
+
   func resetSettings() {
+    guard !isRestartingEngine else { return }
     settings = SettingsDraft(config: config)
     L10n.configure(language: settings.appLanguage)
     settingsSaved = false
-    settingsFeedback = nil
+    updateSettingsFeedback(applied: [])
     restartEngineFailed = false
     proxyTestMessage = nil
   }
@@ -813,7 +791,9 @@ final class MainWindowModel: ObservableObject {
   private func removeTasks(_ targets: [Aria2Task], deletingFiles: Bool) async {
     do {
       for target in targets {
-        let files = deletingFiles ? removableFiles(for: target) : []
+        let fileTask = deletingFiles && target.isBitTorrent && liveTaskIDs.contains(target.id)
+          ? try await client.getTask(target.id, includeBitfield: false) : target
+        let files = deletingFiles ? removableFiles(for: fileTask) : []
         if liveTaskIDs.contains(target.id) {
           if target.status == "complete" || target.status == "error" || target.status == "removed" {
             try await client.removeDownloadResult(target.id)
@@ -826,9 +806,9 @@ final class MainWindowModel: ObservableObject {
         if deletingFiles {
           try moveToTrash(files)
         }
+        removeHistory([target.id])
+        selectedTaskIDs.remove(target.id)
       }
-      removeHistory(targets.map(\.id))
-      selectedTaskIDs.subtract(targets.map(\.id))
       await refresh()
     } catch {
       NSAlert(error: error).runModal()
@@ -838,11 +818,7 @@ final class MainWindowModel: ObservableObject {
 
   private func removeHistory(_ ids: [String]) {
     guard !ids.isEmpty else { return }
-    ids.forEach {
-      pendingTaskMetadata.removeValue(forKey: $0)
-      historyRecords.removeValue(forKey: $0)
-    }
-    try? historyStore.save(historyRecords)
+    snapshots.remove(ids)
   }
 
   private func removableFiles(for task: Aria2Task) -> [URL] {

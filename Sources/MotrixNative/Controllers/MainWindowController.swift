@@ -10,12 +10,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
   init(
     config: MotrixConfig,
     client: Aria2RPCClient,
+    snapshots: TaskSnapshotStore? = nil,
     restartEngine: @escaping () async -> Bool = { false },
     settingsDidSave: @escaping (MotrixConfig) -> Void = { _ in }
   ) {
     self.model = MainWindowModel(
       config: config,
       client: client,
+      snapshots: snapshots,
       restartEngine: restartEngine,
       settingsDidSave: settingsDidSave
     )
@@ -70,6 +72,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
   func showDetails(_ task: Aria2Task) {
     model.showDetails(task)
+  }
+
+  func engineDidRestart(_ config: MotrixConfig) {
+    model.engineDidRestart(config)
   }
 
   func showPreferences() {

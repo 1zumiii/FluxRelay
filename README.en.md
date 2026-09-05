@@ -16,6 +16,8 @@ The current packaged version is `0.2.0`. It requires Apple Silicon (arm64) and m
 - Pauses, resumes, removes, and clears completed tasks, with queue priority controls.
 - Provides filtering, search, sorting, multi-selection, and batch actions.
 - Persists download history so source, completion time, file location, and checksum results remain searchable after a restart.
+- Shares one task snapshot between the menu bar and main window: 2-second polling during activity, 10 seconds when idle, and immediate refresh after actions.
+- Uses compact list queries, caches file metadata, and loads torrent files and piece data on demand for details or actions.
 - Includes task details, transfer statistics, files, sources, peers, trackers, and a piece map.
 - Provides download, BitTorrent, connection, RPC, notification, and login item settings.
 - Reports which settings applied immediately and provides a direct engine restart action for the rest.
@@ -25,6 +27,8 @@ The current packaged version is `0.2.0`. It requires Apple Silicon (arm64) and m
 - Includes Simplified Chinese and English localization with instant language switching.
 
 Configuration, download sessions, and logs are stored in macOS application support data. The bundled aria2 engine uses local JSON-RPC, saves its session, and shuts down cleanly when the app exits.
+
+Completion times reflect transitions observed by the app. Imported completed tasks without a recorded date keep that date unknown; unavailable checksum configuration is shown as Unknown. Download defaults apply to new tasks. Pending engine settings remain visible until successfully applied. Restart saves the session and waits for the owned engine to exit; an external engine is never reported as successfully restarted.
 
 ## Build
 
@@ -52,6 +56,8 @@ ARIA2_BINARY="$PWD/Resources/engine/aria2c" Scripts/smoke-test-aria2.sh
 ```
 
 Regression tests cover task pagination, adaptive probe completion, asynchronous cancellation and duplicate submission, proxy configuration compatibility, and HTTPS certificate verification. Engine tests use temporary directories and independent loopback ports, without connecting to a running download engine or changing system certificate trust. The self-signed HTTPS test requires `python3` and `openssl`. The piece-map performance comparison is skipped by default and can be enabled through the switch documented in its test file.
+
+Regression tests also cover history reload and deletion races, snapshot caching, idle polling, pending settings, and session recovery after changing the owned engine’s RPC port and secret.
 
 ## Package
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import http.server
 import json
 import os
@@ -204,6 +205,23 @@ def main() -> int:
         if observed != expected:
             raise RuntimeError(f"completed history order/content mismatch: {observed}")
 
+        # Exercise the compact snapshot and checksum contracts used by the UI.
+        summaries = rpc(rpc_port, "aria2.tellStopped", -1, 100, ["gid", "status", "totalLength"])
+        if any("files" in item or "bitfield" in item for item in summaries):
+            raise RuntimeError("summary RPC unexpectedly returned detail fields")
+        detail = rpc(rpc_port, "aria2.tellStatus", summaries[0]["gid"], ["gid", "files", "bitfield"])
+        if not detail.get("files"):
+            raise RuntimeError("on-demand file details are missing")
+        uri = f"http://127.0.0.1:{http_port}/history-00.txt"
+        bad = rpc(rpc_port, "aria2.addUri", [uri], {"out": "checksum-bad.txt", "checksum": "sha-256=" + "0" * 64})
+        failed = wait_status(rpc_port, bad, {"complete", "error"})
+        if failed.get("errorCode") != "32":
+            raise RuntimeError(f"checksum mismatch must report code 32: {failed}")
+        digest = hashlib.sha256((source / "history-00.txt").read_bytes()).hexdigest()
+        good = rpc(rpc_port, "aria2.addUri", [uri], {"out": "checksum-good.txt", "checksum": "sha-256=" + digest})
+        if wait_status(rpc_port, good, {"complete", "error"})["status"] != "complete":
+            raise RuntimeError("valid checksum did not complete")
+
         for index in range(21):
             rpc(rpc_port, "aria2.addUri", [f"http://127.0.0.1:{http_port}/queued-{index:02d}.txt"], {"pause": "true"})
         waiting = rpc(rpc_port, "aria2.tellWaiting", 0, 100, ["status"])
@@ -214,7 +232,7 @@ def main() -> int:
         rpc(rpc_port, "aria2.shutdown")
         engine.wait(timeout=5)
         engine = None
-        print("aria2 regression contracts passed (TLS validation, completed history, queued tasks).")
+        print("aria2 regression contracts passed (TLS validation, completed history, queued tasks, summary/detail fields, checksums).")
         return 0
     finally:
         for server in servers:

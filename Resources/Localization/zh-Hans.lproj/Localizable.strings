@@ -73,7 +73,7 @@
 "preferences.bt_port.title" = "BT 监听端口";
 "preferences.concurrent_downloads.subtitle" = "允许同时运行的任务数";
 "preferences.concurrent_downloads.title" = "同时下载";
-"preferences.connection.info" = "首次启动会继承 Motrix 的端口和密钥，之后由 FluxRelay 独立保存。修改后保存，再从状态栏的高级菜单重启引擎即可生效。";
+"preferences.connection.info" = "FluxRelay 独立保存连接设置。保存修改后，点击下方“重启引擎”即可应用待生效的设置。";
 "preferences.connections_per_server.title" = "单服务器连接数";
 "preferences.connections_per_server.adaptive_subtitle" = "连接数嗅探允许使用的上限";
 "preferences.connections_per_server.fixed_subtitle" = "每个服务器固定使用的连接上限";
@@ -317,3 +317,6 @@
 "preferences.language.system" = "跟随系统";
 "preferences.language.title" = "语言";
 "transfer.uploaded" = "已上传";
+
+"history.save_failed" = "无法保存下载历史：%@";
+"task_detail.checksum_unknown" = "未知";

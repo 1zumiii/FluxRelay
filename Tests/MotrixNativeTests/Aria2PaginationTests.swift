@@ -114,8 +114,8 @@ private struct RPCMockTransfer: @unchecked Sendable {
   let instance: RPCMock
 }
 
-private final class RPCMock: URLProtocol {
-  typealias Handler = @MainActor (String, [Any]) throws -> [[String: Any]]
+final class RPCMock: URLProtocol {
+  typealias Handler = @MainActor (String, [Any]) async throws -> Any
   @MainActor static var handler: Handler!
   @MainActor static var methods: [String] = []
 
@@ -130,11 +130,11 @@ private final class RPCMock: URLProtocol {
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
     let transfer = RPCMockTransfer(instance: self)
-    Task { @MainActor in transfer.instance.respond() }
+    Task { @MainActor in await transfer.instance.respond() }
   }
 
   @MainActor
-  private func respond() {
+  private func respond() async {
     do {
       let bodyData: Data
       if let data = request.httpBody {
@@ -159,7 +159,7 @@ private final class RPCMock: URLProtocol {
       let identifier = body["id"]!
         do {
           Self.methods.append(method)
-          let result = try Self.handler(method, params)
+          let result = try await Self.handler(method, params)
           let data = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": identifier, "result": result])
           self.finish(data: data)
         } catch let error as RPCMockFailure {
@@ -187,6 +187,6 @@ private final class RPCMock: URLProtocol {
   override func stopLoading() {}
 }
 
-private struct RPCMockFailure: Error {
+struct RPCMockFailure: Error {
   let message: String
 }
