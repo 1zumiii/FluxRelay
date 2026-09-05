@@ -50,6 +50,16 @@ Scripts/build-aria2-arm64.sh --install
 xcrun swift build -c release --arch arm64 --product FluxRelay
 ```
 
+## 验证
+
+```sh
+swift test -c release
+python3 Scripts/test-aria2-regressions.py
+ARIA2_BINARY="$PWD/Resources/engine/aria2c" Scripts/smoke-test-aria2.sh
+```
+
+回归测试覆盖任务分页、智能并发探测收尾、异步任务取消和重复提交、旧代理配置兼容，以及 HTTPS 证书校验。引擎测试使用临时目录和独立本机端口，不连接正在运行的下载引擎，也不修改系统证书信任。自签名 HTTPS 测试需要 `python3` 和 `openssl`。数据块性能对比测试默认跳过，可通过 `MOTRIX_PERFORMANCE_CHECK=1` 单独启用。
+
 ## 打包
 
 ```sh

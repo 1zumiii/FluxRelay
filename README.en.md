@@ -68,6 +68,16 @@ Then build the Swift app:
 xcrun swift build -c release --arch arm64 --product FluxRelay
 ```
 
+## Validation
+
+```sh
+swift test -c release
+python3 Scripts/test-aria2-regressions.py
+ARIA2_BINARY="$PWD/Resources/engine/aria2c" Scripts/smoke-test-aria2.sh
+```
+
+Regression tests cover task pagination, adaptive probe completion, asynchronous cancellation and duplicate submission, legacy proxy settings, and HTTPS certificate verification. Engine tests use temporary directories and independent loopback ports, without connecting to the running download engine or changing system certificate trust. The self-signed HTTPS test requires `python3` and `openssl`. The piece-map performance comparison is opt-in with `MOTRIX_PERFORMANCE_CHECK=1`.
+
 ## Package
 
 ```sh

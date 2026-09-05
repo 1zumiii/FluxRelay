@@ -19,7 +19,18 @@ enum ProxyMode: String, CaseIterable, Identifiable {
 
 enum ProxyScheme: String, CaseIterable, Identifiable {
   case http
-  case https
+
+  // aria2's proxy options use an HTTP proxy endpoint, including CONNECT for
+  // HTTPS destinations. Keep accepting the old persisted value so upgrades
+  // do not leave an unsupported scheme in settings.
+  init?(rawValue: String) {
+    switch rawValue.lowercased() {
+    case "http", "https":
+      self = .http
+    default:
+      return nil
+    }
+  }
 
   var id: String { rawValue }
   var title: String { rawValue.uppercased() }
@@ -61,7 +72,7 @@ enum ProxyConfiguration {
     aria2ProxyKeys.forEach { engineConfig.removeValue(forKey: $0) }
 
     guard let rawMode = userConfig["proxy-mode"] as? String else {
-      engineConfig.merge(legacyOptions) { _, new in new }
+      engineConfig.merge(normalizedLegacyOptions(legacyOptions)) { _, new in new }
       return
     }
 
@@ -95,7 +106,7 @@ enum ProxyConfiguration {
       }
 
       let scheme = ProxyScheme(rawValue: components.scheme?.lowercased() ?? "http") ?? .http
-      let port = components.port ?? (scheme == .https ? 443 : 80)
+      let port = components.port ?? 80
       return (scheme, host, port)
     }
     return nil
@@ -113,27 +124,18 @@ enum ProxyConfiguration {
     case .system:
       return SystemProxyResolver.preferredEndpoint()
     case .manual:
-      let host = host.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !host.isEmpty else { return nil }
-      return ProxyEndpoint(scheme: scheme, host: host, port: min(65535, max(1, port)))
+      return manualEndpoint(scheme: scheme, host: host, port: port)
     }
   }
 
-  private static func manualOptions(userConfig: [String: Any]) -> [String: String] {
+  static func manualOptions(userConfig: [String: Any]) -> [String: String] {
     let scheme = ProxyScheme(rawValue: userConfig["proxy-scheme"] as? String ?? "") ?? .http
-    let host = (userConfig["proxy-host"] as? String ?? defaultHost)
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let host = userConfig["proxy-host"] as? String ?? defaultHost
     let port = intValue(userConfig["proxy-port"]) ?? defaultPort
 
-    guard !host.isEmpty else {
+    guard let endpoint = manualEndpoint(scheme: scheme, host: host, port: port) else {
       return [:]
     }
-
-    let endpoint = ProxyEndpoint(
-      scheme: scheme,
-      host: host,
-      port: min(65535, max(1, port))
-    )
     guard let endpointURL = endpoint.urlString else {
       return [:]
     }
@@ -142,6 +144,27 @@ enum ProxyConfiguration {
       "all-proxy": endpointURL,
       "no-proxy": "localhost,127.0.0.1,::1"
     ]
+  }
+
+  static func manualEndpoint(scheme: ProxyScheme, host: String, port: Int) -> ProxyEndpoint? {
+    let host = host.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !host.isEmpty else { return nil }
+    return ProxyEndpoint(scheme: scheme, host: host, port: min(65535, max(1, port)))
+  }
+
+  private static func normalizedLegacyOptions(_ options: [String: Any]) -> [String: Any] {
+    let endpointKeys: Set<String> = ["all-proxy", "http-proxy", "https-proxy"]
+    return options.reduce(into: options) { result, entry in
+      guard endpointKeys.contains(entry.key), let value = entry.value as? String,
+        let components = URLComponents(string: value),
+        components.scheme?.lowercased() == "https"
+      else {
+        return
+      }
+      var normalized = components
+      normalized.scheme = ProxyScheme.http.rawValue
+      result[entry.key] = normalized.string ?? value
+    }
   }
 
   private static func intValue(_ value: Any?) -> Int? {

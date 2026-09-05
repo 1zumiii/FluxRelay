@@ -368,7 +368,7 @@ final class MainWindowModel: ObservableObject {
   private func refreshSnapshot() async {
     do {
       let latestStat = try await client.getGlobalStat()
-      let latestTasks = try await client.listTasks()
+      let latestTasks = try await client.listTasks(stat: latestStat)
       tasks = latestTasks
       let retainedIDs = selectedTaskIDs.intersection(Set(latestTasks.map(\.id)))
       if selectedTaskIDs != retainedIDs { selectedTaskIDs = retainedIDs }

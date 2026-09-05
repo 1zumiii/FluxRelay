@@ -12,20 +12,23 @@ final class AdaptiveConnectionController {
     var samples: [Int64]
     var settleUntil: Date
     var adjustments: Int
+    var hasMeasuredCurrentConnections: Bool
     var isFinished: Bool
   }
 
   private var config: MotrixConfig
   private let client: Aria2RPCClient
+  private let now: () -> Date
   private var states: [String: ProbeState] = [:]
   private var profiles: [String: Int]
   private var lastResult: String?
 
   private(set) var statusText: String
 
-  init(config: MotrixConfig, client: Aria2RPCClient) {
+  init(config: MotrixConfig, client: Aria2RPCClient, clock: @escaping () -> Date = Date.init) {
     self.config = config
     self.client = client
+    self.now = clock
     self.profiles = AdaptiveConnectionProfileStore.load(from: config.adaptiveProfilePath)
     self.statusText = config.adaptiveConnectionsEnabled ? L10n.tr("adaptive.standby") : L10n.tr("adaptive.disabled")
   }
@@ -45,7 +48,7 @@ final class AdaptiveConnectionController {
     }
 
     let retainedIDs = Set(tasks.filter {
-      $0.status == "active" || $0.status == "waiting"
+      $0.status == "active" || $0.status == "waiting" || $0.status == "paused"
     }.map(\.id))
     states = states.filter { retainedIDs.contains($0.key) }
 
@@ -54,7 +57,7 @@ final class AdaptiveConnectionController {
         !$0.isBitTorrent &&
         $0.sourceHost != nil &&
         $0.totalLength >= 128 * 1024 * 1024 &&
-        $0.progress < 0.10 &&
+        ($0.progress < 0.10 || states[$0.id] != nil) &&
         states[$0.id]?.isFinished != true
     }
 
@@ -79,29 +82,37 @@ final class AdaptiveConnectionController {
     if let existing = states[task.id] {
       state = existing
     } else {
-      let options = try? await client.getOption(task.id)
-      let split = Int(options?["split"] ?? "") ?? config.adaptiveConnectionCeiling
+      guard let options = try? await client.getOption(task.id),
+            let split = Int(options["split"] ?? ""),
+            let reported = Int(options["max-connection-per-server"] ?? "")
+      else { return }
       let ceiling = Aria2Limits.clampConnections(
         min(config.adaptiveConnectionCeiling, sharedBudget, split)
       )
-      let reported = Int(options?["max-connection-per-server"] ?? "")
-        ?? config.adaptiveStartingConnections
       let current = min(Aria2Limits.clampConnections(reported), ceiling)
 
       if reported != current {
-        try? await apply(current, to: task.id)
+        do {
+          try await apply(current, to: task.id)
+        } catch {
+          // Retry on the next observation rather than learning from an
+          // option change that aria2 did not accept.
+          return
+        }
       }
 
+      let currentDate = now()
       state = ProbeState(
         host: host,
-        startedAt: Date(),
+        startedAt: currentDate,
         currentConnections: current,
         bestConnections: current,
         bestSpeed: 0,
         probeCeiling: ceiling,
         samples: [],
-        settleUntil: Date().addingTimeInterval(6),
+        settleUntil: currentDate.addingTimeInterval(6),
         adjustments: 0,
+        hasMeasuredCurrentConnections: false,
         isFinished: false
       )
     }
@@ -111,13 +122,13 @@ final class AdaptiveConnectionController {
       return
     }
 
-    if task.progress >= 0.10 || Date().timeIntervalSince(state.startedAt) >= 90 {
-      finish(&state)
+    if task.progress >= 0.10 || now().timeIntervalSince(state.startedAt) >= 90 {
+      await finish(&state, gid: task.id)
       states[task.id] = state
       return
     }
 
-    guard Date() >= state.settleUntil, task.downloadSpeed > 0 else {
+    guard now() >= state.settleUntil, task.downloadSpeed > 0 else {
       states[task.id] = state
       return
     }
@@ -130,6 +141,7 @@ final class AdaptiveConnectionController {
 
     let average = Double(state.samples.reduce(Int64(0), +)) / Double(state.samples.count)
     state.samples.removeAll(keepingCapacity: true)
+    state.hasMeasuredCurrentConnections = true
 
     if state.bestSpeed == 0 {
       state.bestSpeed = average
@@ -139,9 +151,14 @@ final class AdaptiveConnectionController {
       state.bestConnections = state.currentConnections
     } else {
       if state.currentConnections != state.bestConnections {
-        try? await apply(state.bestConnections, to: task.id)
+        do {
+          try await apply(state.bestConnections, to: task.id)
+          state.currentConnections = state.bestConnections
+        } catch {
+          // Keep the current setting if aria2 rejects the restoration.
+        }
       }
-      finish(&state)
+      await finish(&state, gid: task.id)
       states[task.id] = state
       return
     }
@@ -155,7 +172,7 @@ final class AdaptiveConnectionController {
         ceiling: min(config.adaptiveConnectionCeiling, sharedBudget, split)
       )
     else {
-      finish(&state)
+      await finish(&state, gid: task.id)
       states[task.id] = state
       return
     }
@@ -164,9 +181,10 @@ final class AdaptiveConnectionController {
       try await apply(next, to: task.id)
       state.currentConnections = next
       state.adjustments += 1
-      state.settleUntil = Date().addingTimeInterval(6)
+      state.hasMeasuredCurrentConnections = false
+      state.settleUntil = now().addingTimeInterval(6)
     } catch {
-      finish(&state)
+      await finish(&state, gid: task.id)
     }
 
     states[task.id] = state
@@ -184,9 +202,26 @@ final class AdaptiveConnectionController {
     return [8, 16, 32, 48, 64].first { $0 > current && $0 <= ceiling }
   }
 
-  private func finish(_ state: inout ProbeState) {
+  private func finish(_ state: inout ProbeState, gid: String) async {
+    // A probe may cross the progress threshold while the latest changeOption
+    // is still settling. Restore the last measured winner before finalizing.
+    if state.bestSpeed > 0,
+       !state.hasMeasuredCurrentConnections,
+       state.currentConnections != state.bestConnections {
+      do {
+        try await apply(state.bestConnections, to: gid)
+        state.currentConnections = state.bestConnections
+      } catch {
+        // The download is allowed to finish with its current setting if aria2
+        // rejects the best-effort restoration.
+      }
+    }
     state.isFinished = true
     state.bestConnections = Aria2Limits.clampConnections(state.bestConnections)
+    guard state.bestSpeed > 0 else {
+      statusText = lastResult ?? L10n.tr("adaptive.standby")
+      return
+    }
     let existing = profiles[state.host] ?? 1
     profiles[state.host] = state.probeCeiling < config.adaptiveConnectionCeiling
       ? max(existing, state.bestConnections)

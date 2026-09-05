@@ -194,6 +194,9 @@ struct MotrixConfig {
     }
 
     var engineConfig = systemConfig
+    // Older Motrix configurations disabled TLS verification globally. Do not
+    // carry that insecure default into the independent engine.
+    engineConfig["check-certificate"] = "true"
     for key in ["log", "log-level", "quiet", "show-console-readout", "enable-color"] {
       engineConfig.removeValue(forKey: key)
     }

@@ -80,7 +80,7 @@ final class StatusController: NSObject, NSMenuDelegate {
   private func refreshSnapshot() async {
     do {
       let globalStat = try await client.getGlobalStat()
-      let tasks = try await client.listTasks()
+      let tasks = try await client.listTasks(stat: globalStat)
       CompletedControlFileCleaner.clean(tasks: tasks)
       let newlyCompletedIDs = updateCompletionState(with: tasks)
       if !newlyCompletedIDs.isEmpty, MotrixConfig.load().taskNotificationsEnabled {

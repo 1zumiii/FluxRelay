@@ -303,12 +303,61 @@ final class Aria2RPCClient {
     )
   }
 
-  func listTasks() async throws -> [Aria2Task] {
+  /// Returns a complete task snapshot for the current aria2 queues and history.
+  ///
+  /// `stat` may be supplied when the caller already fetched a global snapshot.
+  /// The counts are used only as a pagination bound; an empty or short page still
+  /// terminates pagination so a queue changing while it is being read cannot loop.
+  func listTasks(stat: Aria2GlobalStat? = nil) async throws -> [Aria2Task] {
+    let snapshot: Aria2GlobalStat
+    if let stat {
+      snapshot = stat
+    } else {
+      snapshot = try await getGlobalStat()
+    }
     let active: [[String: Any]] = try await call("aria2.tellActive")
-    let waiting: [[String: Any]] = try await call("aria2.tellWaiting", params: [0, 20])
-    let stopped: [[String: Any]] = try await call("aria2.tellStopped", params: [0, 20])
-    let combined = active + waiting + stopped
-    return combined.compactMap(Aria2Task.from)
+    let waiting = try await paginatedTasks(
+      method: "aria2.tellWaiting",
+      count: snapshot.waiting,
+      offset: { page in page * 100 }
+    )
+    let stopped = try await paginatedTasks(
+      method: "aria2.tellStopped",
+      count: snapshot.stopped,
+      offset: { page in -1 - page * 100 }
+    )
+
+    var seen = Set<String>()
+    return (active + waiting + stopped).compactMap { dictionary in
+      guard let task = Aria2Task.from(dictionary), seen.insert(task.id).inserted else {
+        return nil
+      }
+      return task
+    }
+  }
+
+  private func paginatedTasks(
+    method: String,
+    count: Int,
+    offset: (Int) -> Int
+  ) async throws -> [[String: Any]] {
+    guard count > 0 else { return [] }
+
+    let pageSize = 100
+    var page = 0
+    var result: [[String: Any]] = []
+    result.reserveCapacity(count)
+
+    while result.count < count {
+      let items: [[String: Any]] = try await call(
+        method,
+        params: [offset(page), pageSize]
+      )
+      result.append(contentsOf: items)
+      page += 1
+      if items.isEmpty || items.count < pageSize { break }
+    }
+    return result
   }
 
   func addURI(_ uri: String, directory: URL, additionalOptions: [String: Any] = [:]) async throws {

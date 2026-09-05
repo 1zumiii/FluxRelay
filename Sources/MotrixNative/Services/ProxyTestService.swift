@@ -62,7 +62,7 @@ enum ProxyTestService {
     return configuration
   }
 
-  private static func proxyConfiguration(_ proxy: ProxyEndpoint) -> URLSessionConfiguration {
+  static func proxyConfiguration(_ proxy: ProxyEndpoint) -> URLSessionConfiguration {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.timeoutIntervalForRequest = 12
     configuration.timeoutIntervalForResource = 15

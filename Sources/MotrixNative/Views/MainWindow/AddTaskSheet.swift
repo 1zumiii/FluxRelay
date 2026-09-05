@@ -19,15 +19,22 @@ struct AddTaskSheet: View {
   @State private var checksum = ""
   @State private var pauseAtStart: Bool
   @State private var advancedExpanded = false
-  @State private var preparedTorrent: PreparedTorrent?
+  @StateObject private var session: AddTaskSession
   @State private var selectedFileIDs = Set<String>()
-  @State private var isPreparingTorrent = false
-  @State private var committed = false
+
+  private var preparedTorrent: PreparedTorrent? { session.preparedTorrent }
+  private var isPreparingTorrent: Bool { session.isPreparing }
 
   init(model: MainWindowModel) {
     self.model = model
     self._directoryPath = State(initialValue: model.defaultDownloadDirectory.path)
     self._pauseAtStart = State(initialValue: model.defaultPauseAtStart)
+    self._session = StateObject(wrappedValue: AddTaskSession(
+      prepare: { await model.prepareTorrent($0, directory: $1) },
+      discard: { await model.discardPreparedTorrent($0) },
+      addLink: { await model.addLink($0, options: $1) },
+      start: { await model.startPreparedTorrent($0, selectedFileIDs: $1, pauseAtStart: $2) }
+    ))
   }
 
   var body: some View {
@@ -94,6 +101,7 @@ struct AddTaskSheet: View {
             .font(.system(size: 13, weight: .medium))
         }
         .padding(24)
+        .disabled(session.isSubmitting)
       }
 
       Divider()
@@ -105,19 +113,24 @@ struct AddTaskSheet: View {
           cancel()
         }
         .keyboardShortcut(.cancelAction)
+        .disabled(session.isSubmitting)
 
         Button(L10n.tr("action.add")) {
           submit()
         }
         .keyboardShortcut(.defaultAction)
-        .disabled(!canSubmit || isPreparingTorrent)
+        .disabled(!canSubmit || isPreparingTorrent || session.isSubmitting)
+
+        if session.isSubmitting {
+          ProgressView().controlSize(.small)
+        }
       }
       .padding(16)
     }
     .frame(width: 620, height: preparedTorrent == nil ? 610 : 760)
+    .interactiveDismissDisabled(session.isSubmitting)
     .onDisappear {
-      guard !committed, let preparedTorrent else { return }
-      Task { await model.discardPreparedTorrent(preparedTorrent) }
+      Task { await session.close() }
     }
   }
 
@@ -263,7 +276,8 @@ struct AddTaskSheet: View {
   }
 
   private var canSubmit: Bool {
-    preparedTorrent != nil || !urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    if preparedTorrent != nil { return !selectedFileIDs.isEmpty }
+    return !urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   private var options: NewDownloadOptions {
@@ -293,20 +307,14 @@ struct AddTaskSheet: View {
   }
 
   private func loadTorrent(_ url: URL) {
-    let previous = preparedTorrent
-    preparedTorrent = nil
+    guard !session.isPreparing, !session.isSubmitting else { return }
     selectedFileIDs.removeAll()
     urlText = ""
-    isPreparingTorrent = true
+    let directory = options.directory
 
     Task {
-      if let previous {
-        await model.discardPreparedTorrent(previous)
-      }
-      let prepared = await model.prepareTorrent(url, directory: options.directory)
-      preparedTorrent = prepared
-      selectedFileIDs = Set(prepared?.files.filter(\.isSelected).map(\.id) ?? [])
-      isPreparingTorrent = false
+      await session.loadTorrent(url, directory: directory)
+      selectedFileIDs = Set(session.preparedTorrent?.files.filter(\.isSelected).map(\.id) ?? [])
     }
   }
 
@@ -322,30 +330,20 @@ struct AddTaskSheet: View {
   }
 
   private func cancel() {
-    let prepared = preparedTorrent
-    preparedTorrent = nil
-    if let prepared {
-      Task { await model.discardPreparedTorrent(prepared) }
+    guard !session.isSubmitting else { return }
+    Task {
+      await session.close()
+      dismiss()
     }
-    dismiss()
   }
 
   private func submit() {
+    let uri = urlText
+    let options = options
+    let selected = selectedFileIDs
     Task {
-      let success: Bool
-      if let preparedTorrent {
-        success = await model.startPreparedTorrent(
-          preparedTorrent,
-          selectedFileIDs: selectedFileIDs,
-          pauseAtStart: pauseAtStart
-        )
-      } else {
-        success = await model.addLink(urlText, options: options)
-      }
-
+      let success = await session.submit(uri: uri, options: options, selectedFileIDs: selected)
       if success {
-        committed = true
-        preparedTorrent = nil
         dismiss()
       }
     }
