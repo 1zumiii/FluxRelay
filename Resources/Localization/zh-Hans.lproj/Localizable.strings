@@ -269,7 +269,7 @@
 "engine_info.build" = "aria2 %@（源码 %@）";
 "engine_info.platform" = "平台: %@ · macOS %@+ · %@";
 "engine_info.dependencies" = "静态依赖: %@";
-"engine_info.compatibility" = "Motrix 兼容: 单服务器最多 %@ 个连接";
+"engine_info.compatibility" = "扩展连接: 单服务器最多 %@ 个连接";
 "notification.download_complete.seeding" = "%@ 已下载完成，正在做种";
 "preferences.trackers.ignored_footer" = "已忽略 %@ 个 aria2 不支持的地址；支持 HTTP、HTTPS 和 UDP，使用逗号或换行分隔。";
 "preferences.trackers.summary" = "已配置 %@ 个服务器";

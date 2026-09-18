@@ -39,7 +39,7 @@ if ! "$ENGINE_BINARY" --version | grep -F "aria2 version $EXPECTED_ARIA2_VERSION
 fi
 
 if ! "$ENGINE_BINARY" --max-connection-per-server=64 --split=64 --version >/dev/null; then
-  echo "The bundled aria2 engine is missing Motrix's 64-connection compatibility patch." >&2
+  echo "The bundled aria2 engine is missing the 64-connection-per-server patch." >&2
   exit 1
 fi
 
@@ -88,7 +88,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key>
   <string>FluxRelay</string>
   <key>CFBundleIdentifier</key>
-  <string>dev.codex.motrix-native</string>
+  <string>io.github.1zumiii.fluxrelay</string>
   <key>CFBundleName</key>
   <string>FluxRelay</string>
   <key>CFBundleDisplayName</key>
@@ -100,9 +100,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.3.0</string>
+  <string>0.3.1</string>
   <key>CFBundleVersion</key>
-  <string>3</string>
+  <string>4</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSArchitecturePriority</key>

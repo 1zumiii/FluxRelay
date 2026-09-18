@@ -269,7 +269,7 @@
 "engine_info.build" = "aria2 %@ (source %@)";
 "engine_info.platform" = "Platform: %@ · macOS %@+ · %@";
 "engine_info.dependencies" = "Static dependencies: %@";
-"engine_info.compatibility" = "Motrix compatibility: up to %@ connections per server";
+"engine_info.compatibility" = "Extended connections: up to %@ per server";
 "notification.download_complete.seeding" = "%@ finished downloading and is now seeding";
 "preferences.trackers.ignored_footer" = "Ignored %@ addresses unsupported by aria2. HTTP, HTTPS, and UDP are supported; separate entries with commas or new lines.";
 "preferences.trackers.summary" = "%@ servers configured";

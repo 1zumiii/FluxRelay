@@ -3,13 +3,13 @@ set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENGINE="${ARIA2_BINARY:-$ROOT_DIR/.build/app/FluxRelay.app/Contents/Resources/engine/aria2c}"
-TEST_ROOT="${TMPDIR:-/tmp}/motrix-native-aria2-smoke.$$"
+TEST_ROOT="${TMPDIR:-/tmp}/fluxrelay-aria2-smoke.$$"
 SOURCE_DIR="$TEST_ROOT/source"
 DOWNLOAD_DIR="$TEST_ROOT/download"
 BASE_PORT=$((40000 + ($$ % 10000)))
 HTTP_PORT="${HTTP_PORT:-$BASE_PORT}"
 RPC_PORT="${RPC_PORT:-$((BASE_PORT + 1))}"
-RPC_SECRET="motrix-native-smoke-test"
+RPC_SECRET="fluxrelay-smoke-test"
 HTTP_PID=""
 ENGINE_PID=""
 

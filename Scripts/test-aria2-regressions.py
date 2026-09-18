@@ -23,7 +23,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = Path(os.environ.get("ARIA2_BINARY", ROOT / "Resources/engine/aria2c"))
 CONFIG = ROOT / "Resources/engine/aria2.conf"
-TOKEN = "motrix-native-regression"
+TOKEN = "fluxrelay-regression"
 RPC_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -113,7 +113,7 @@ def main() -> int:
         raise RuntimeError(f"missing executable engine: {ENGINE}")
     assert_config()
 
-    root = Path(tempfile.mkdtemp(prefix="motrix-native-aria2-regressions-"))
+    root = Path(tempfile.mkdtemp(prefix="fluxrelay-aria2-regressions-"))
     engine = None
     servers = []
     try:

@@ -8,16 +8,16 @@ let package = Package(
     .macOS(.v14)
   ],
   products: [
-    .executable(name: "FluxRelay", targets: ["MotrixNative"])
+    .executable(name: "FluxRelay", targets: ["FluxRelay"])
   ],
   targets: [
     .executableTarget(
-      name: "MotrixNative",
-      path: "Sources/MotrixNative"
+      name: "FluxRelay",
+      path: "Sources/FluxRelay"
     ),
     .testTarget(
-      name: "MotrixNativeTests",
-      dependencies: ["MotrixNative"]
+      name: "FluxRelayTests",
+      dependencies: ["FluxRelay"]
     )
   ]
 )
