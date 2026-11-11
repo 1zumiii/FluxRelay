@@ -3,6 +3,7 @@ import SwiftUI
 struct TaskDetailView: View {
   let task: Aria2Task
   @ObservedObject var model: MainWindowModel
+  @State private var accessDeniedReason: AccessDeniedProbe.Reason?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
@@ -73,11 +74,32 @@ struct TaskDetailView: View {
                 Text(task.errorMessage.isEmpty ? L10n.tr("task_detail.no_error_details") : task.errorMessage)
                   .font(.system(size: 12))
                   .foregroundStyle(.secondary)
+                if task.httpErrorStatus == 403 {
+                  Text(accessDeniedReason == .browserVerification
+                    ? L10n.tr("task_detail.access_denied.browser_verification")
+                    : L10n.tr("task_detail.access_denied.generic"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+                }
               }
               Spacer()
+              if task.httpErrorStatus == 403, let url = task.webSourceURL {
+                Button(L10n.tr("task_detail.open_in_browser")) {
+                  NSWorkspace.shared.open(url)
+                }
+                .controlSize(.small)
+              }
             }
             .padding(14)
             .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .task(id: task.id) {
+              accessDeniedReason = nil
+              guard task.httpErrorStatus == 403, let url = task.webSourceURL else { return }
+              let reason = await AccessDeniedProbe.reason(for: url)
+              if !Task.isCancelled { accessDeniedReason = reason }
+            }
           }
 
           if task.isBitTorrent {

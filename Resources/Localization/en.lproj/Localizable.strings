@@ -198,6 +198,9 @@
 "task_detail.information" = "Task Information";
 "task_detail.location_and_source" = "Location & Source";
 "task_detail.no_error_details" = "aria2 did not provide detailed error information";
+"task_detail.access_denied.browser_verification" = "This site uses Cloudflare browser verification and only lets browsers through, so download tools cannot fetch the file. Download it in your browser instead.";
+"task_detail.access_denied.generic" = "The server refused access (403). The link may have expired, or the site may require browser verification, a referer, or a signed-in cookie.";
+"task_detail.open_in_browser" = "Open in Browser";
 "task_detail.no_peers" = "The task is inactive; no peer information is available";
 "task_detail.no_trackers" = "No tracker information is available for this task";
 "task_detail.piece_distribution" = "Piece Distribution";

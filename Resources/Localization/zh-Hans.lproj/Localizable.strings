@@ -198,6 +198,9 @@
 "task_detail.information" = "任务信息";
 "task_detail.location_and_source" = "位置与来源";
 "task_detail.no_error_details" = "aria2 未提供详细错误信息";
+"task_detail.access_denied.browser_verification" = "该站点启用了 Cloudflare 浏览器验证，只允许浏览器访问，下载工具无法获取文件。请在浏览器中下载。";
+"task_detail.access_denied.generic" = "服务器拒绝了访问（403）。链接可能已过期，或站点要求浏览器验证、Referer 或登录 Cookie。";
+"task_detail.open_in_browser" = "在浏览器中打开";
 "task_detail.no_peers" = "任务未活动，暂无 Peer 信息";
 "task_detail.no_trackers" = "当前任务没有可用的 Tracker 信息";
 "task_detail.piece_distribution" = "数据块分布";
