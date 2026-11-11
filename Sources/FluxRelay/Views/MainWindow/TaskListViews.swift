@@ -41,7 +41,7 @@ struct TaskCard: View {
                 .tint(.teal)
                 .frame(maxWidth: 280)
 
-              Text("\(Int((task.progress * 100).rounded()))%")
+              Text("\(Int(task.progress * 100))%")
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
             }

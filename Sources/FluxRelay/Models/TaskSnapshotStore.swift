@@ -20,6 +20,8 @@ final class TaskSnapshotStore {
   private var needsSave = false
   private var historyLoadError: String?
   private var lastRefresh: Date?
+  private var stoppedCache: (count: Int, queuedIDs: Set<String>, fetchedAt: Date, tasks: [Aria2Task])?
+  private var detailsCachedDuringRefresh: [String: Aria2Task] = [:]
   private(set) var liveTasks: [Aria2Task] = []
   private(set) var liveTaskIDs = Set<String>()
   private(set) var tasks: [Aria2Task] = []
@@ -64,9 +66,24 @@ final class TaskSnapshotStore {
       guard !isSuspended else { return }
       let version = generation
       var nextFileCache = fileCache
+      detailsCachedDuringRefresh.removeAll()
       do {
         let latestStat = try await client.getGlobalStat()
-        let summaries = try await client.listTasks(stat: latestStat, summaryOnly: true)
+        let queued = try await client.listQueuedTasks(stat: latestStat, summaryOnly: true)
+        let queuedIDs = Set(queued.map(\.id))
+        // The stopped list only grows when a task leaves the queue and only
+        // shrinks when a result is removed, so most polls can reuse it. The
+        // age limit bounds the damage if that reasoning ever misses a case.
+        let refreshedStopped = !(stoppedCache.map {
+          $0.count == latestStat.stopped && $0.queuedIDs == queuedIDs && Date().timeIntervalSince($0.fetchedAt) < 30
+        } ?? false)
+        var nextStoppedCache = stoppedCache
+        if refreshedStopped {
+          let stopped = try await client.listStoppedTasks(stat: latestStat, summaryOnly: true)
+          nextStoppedCache = (latestStat.stopped, queuedIDs, Date(), stopped)
+        }
+        var seen = Set<String>()
+        let summaries = (queued + (nextStoppedCache?.tasks ?? [])).filter { seen.insert($0.id).inserted }
         var latestTasks: [Aria2Task] = []
         var refreshedFiles = Set<String>()
         for summary in summaries where !removedIDs.contains(summary.id) {
@@ -99,7 +116,20 @@ final class TaskSnapshotStore {
         }
         // A removal or submission while RPC was suspended invalidates this read.
         guard version == generation, !isSuspended else { return }
+        // Details fetched while this pass was reading are newer than its copy.
+        for (id, cached) in detailsCachedDuringRefresh where summaryIDs.contains(id) {
+          nextFileCache[id] = cached
+        }
         fileCache = nextFileCache
+        stoppedCache = nextStoppedCache
+        if refreshedStopped {
+          // Once the engine has forgotten a removed task it cannot come back.
+          let forgotten = removedIDs.subtracting(summaryIDs)
+          if !forgotten.isEmpty {
+            removedIDs.subtract(forgotten)
+            needsSave = true
+          }
+        }
         optionLookups.formUnion(lookedUp)
         liveTasks = latestTasks.filter { !removedIDs.contains($0.id) }
         for task in liveTasks {
@@ -132,6 +162,7 @@ final class TaskSnapshotStore {
         rebuildTasks()
       } catch {
         guard version == generation, !isSuspended else { return }
+        stoppedCache = nil
         isConnected = false
         errorText = L10n.tr("engine.rpc_disconnected")
       }
@@ -179,13 +210,16 @@ final class TaskSnapshotStore {
 
   func cacheDetails(_ task: Aria2Task) {
     guard !removedIDs.contains(task.id) else { return }
-    generation += 1
-    fileCache[task.id] = task.withCachedFiles(task)
+    // Bumping the generation here discarded any poll that was in flight.
+    let cached = task.withCachedFiles(task)
+    fileCache[task.id] = cached
+    detailsCachedDuringRefresh[task.id] = cached
   }
 
   func invalidate() {
     generation += 1
     lastRefresh = nil
+    stoppedCache = nil
     fileCache.removeAll()
     optionLookups.removeAll()
   }

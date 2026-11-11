@@ -5,8 +5,9 @@ struct ProgressSummary {
   let taskCount: Int
   let hasIncompleteTasks: Bool
 
+  /// Rounded down so the status item reads 100% only when nothing is left.
   var percent: Int {
-    Int((min(1, max(0, progress)) * 100).rounded())
+    Int(min(1, max(0, progress)) * 100)
   }
 
   var statusTitle: String {

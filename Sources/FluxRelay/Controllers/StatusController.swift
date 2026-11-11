@@ -11,6 +11,9 @@ final class StatusController: NSObject, NSMenuDelegate {
   private let menu = NSMenu()
 
   private var timer: Timer?
+  private var downloadActivity: NSObjectProtocol?
+  private var activityPreventsSleep = false
+  private let events = Aria2EventStream()
   private let refreshCoalescer = RefreshCoalescer()
   private var isMenuOpen = false
   private var tasks: [Aria2Task] = []
@@ -47,6 +50,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     self.snapshots = TaskSnapshotStore(config: config, client: client)
     super.init()
     snapshots.observe { [weak self] in self?.receiveSnapshot() }
+    events.onEvent = { [weak self] in
+      Task { await self?.refresh() }
+    }
   }
 
   func start() {
@@ -67,6 +73,8 @@ final class StatusController: NSObject, NSMenuDelegate {
   func stop() async {
     isStopping = true
     timer?.invalidate()
+    events.disconnect()
+    updateDownloadActivity()
     await snapshots.refresh()
     snapshots.isSuspended = true
     snapshots.invalidate()
@@ -82,7 +90,8 @@ final class StatusController: NSObject, NSMenuDelegate {
   func menuWillOpen(_ menu: NSMenu) {
     isMenuOpen = true
     markCompletedTasksRead()
-    renderMenu()
+    renderStatusItem()
+    rebuildMenu()
   }
 
   func menuDidClose(_ menu: NSMenu) {
@@ -100,12 +109,39 @@ final class StatusController: NSObject, NSMenuDelegate {
   private func scheduleRefresh() {
     timer?.invalidate()
     guard !isStopping, !isRestartingEngine else { return }
-    timer = Timer.scheduledTimer(withTimeInterval: snapshots.pollingInterval, repeats: false) { [weak self] _ in
+    let timer = Timer(timeInterval: snapshots.pollingInterval, repeats: false) { [weak self] _ in
       Task { @MainActor in
         guard let self else { return }
         await self.refresh(queueFollowUp: false)
         self.scheduleRefresh()
       }
+    }
+    // The default mode pauses while a menu or a modal alert is tracking events,
+    // which froze the status item for as long as the menu stayed open.
+    RunLoop.main.add(timer, forMode: .common)
+    self.timer = timer
+  }
+
+  /// A menu bar app without a window is put into App Nap, which delays timers
+  /// by several seconds. Hold an activity while downloads are in the queue,
+  /// and let it keep the Mac awake while one is transferring if the user
+  /// asked for that. Seeding alone never keeps the Mac awake.
+  private func updateDownloadActivity() {
+    let isQueued = snapshots.isConnected && !isStopping
+      && tasks.contains { $0.status == "active" || $0.status == "waiting" }
+    let preventsSleep = isQueued && config.preventsSleepWhileDownloading
+      && tasks.contains { $0.status == "active" && !$0.isSeeding }
+
+    if let activity = downloadActivity, !isQueued || preventsSleep != activityPreventsSleep {
+      ProcessInfo.processInfo.endActivity(activity)
+      downloadActivity = nil
+    }
+    if isQueued, downloadActivity == nil {
+      downloadActivity = ProcessInfo.processInfo.beginActivity(
+        options: preventsSleep ? .userInitiated : .userInitiatedAllowingIdleSystemSleep,
+        reason: "Downloading"
+      )
+      activityPreventsSleep = preventsSleep
     }
   }
 
@@ -124,6 +160,7 @@ final class StatusController: NSObject, NSMenuDelegate {
       globalStat = snapshots.stat
       self.tasks = tasks
       progressSummary = makeProgressSummary(tasks)
+      events.connect(port: client.runningConfig.rpcPort)
       Task {
         await adaptiveSplitController.observe(tasks)
         await adaptiveConnectionController.observe(tasks)
@@ -131,6 +168,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     } else {
       progressSummary = nil
     }
+    updateDownloadActivity()
     lastError = snapshots.errorText
     renderMenu()
     scheduleRefresh()
@@ -138,10 +176,37 @@ final class StatusController: NSObject, NSMenuDelegate {
 
   private func renderMenu() {
     renderStatusItem()
-    guard isMenuOpen || menu.numberOfItems == 0 else { return }
+    if menu.numberOfItems == 0 {
+      rebuildMenu()
+    } else if isMenuOpen {
+      refreshOpenMenu()
+    }
+  }
 
+  /// Rebuilding an open menu drops the highlight and closes its submenus, so
+  /// only the header and the listed task rows are updated in place.
+  private func refreshOpenMenu() {
+    if let header = menu.items.first, header.view is StatusMenuHeaderView {
+      header.view = headerView()
+    }
+    for item in menu.items {
+      guard
+        let gid = item.identifier?.rawValue,
+        let task = tasks.first(where: { $0.id == gid })
+      else {
+        continue
+      }
+      let title = taskTitle(task)
+      if item.title != title { item.title = title }
+      item.image = menuImage(taskImageName(task), description: title)
+    }
+  }
+
+  private func rebuildMenu() {
     menu.removeAllItems()
-    menu.addItem(headerItem())
+    let header = NSMenuItem()
+    header.view = headerView()
+    menu.addItem(header)
     menu.addItem(NSMenuItem.separator())
 
     if let lastError {
@@ -171,7 +236,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     menu.addItem(NSMenuItem(title: L10n.tr("status_menu.quit"), action: #selector(quit), keyEquivalent: "q", target: self))
   }
 
-  private func headerItem() -> NSMenuItem {
+  private func headerView() -> StatusMenuHeaderView {
     let downloading = tasks.filter { $0.status == "active" && !$0.isSeeding }
     let seeding = tasks.filter(\.isSeeding)
     let state: String
@@ -204,14 +269,12 @@ final class StatusController: NSObject, NSMenuDelegate {
       progress = nil
     }
 
-    let item = NSMenuItem()
-    item.view = StatusMenuHeaderView(
+    return StatusMenuHeaderView(
       state: state,
       detail: detail,
       progress: progress,
       isError: lastError != nil
     )
-    return item
   }
 
   private func sectionHeader(_ title: String) -> NSMenuItem {
@@ -241,11 +304,14 @@ final class StatusController: NSObject, NSMenuDelegate {
       target: action == nil ? nil : self,
       representedObject: representedObject
     )
-    if let image = NSImage(systemSymbolName: systemImage, accessibilityDescription: title) {
-      image.isTemplate = true
-      item.image = image
-    }
+    item.image = menuImage(systemImage, description: title)
     return item
+  }
+
+  private func menuImage(_ systemImage: String, description: String) -> NSImage? {
+    let image = NSImage(systemSymbolName: systemImage, accessibilityDescription: description)
+    image?.isTemplate = true
+    return image
   }
 
   private func taskImageName(_ task: Aria2Task) -> String {
@@ -266,9 +332,10 @@ final class StatusController: NSObject, NSMenuDelegate {
   private func renderStatusItem() {
     // A poll that changes nothing visible should not redraw the status item.
     let activeSummary = progressSummary?.hasIncompleteTasks == true ? progressSummary : nil
+    let showsCompletion = showsCompletionBadge
     let key = [
       lastError ?? "",
-      String(unreadCompletedTaskIDs.count),
+      showsCompletion ? String(unreadCompletedTaskIDs.count) : "",
       activeSummary.map { "\($0.taskCount):\($0.percent)" } ?? ""
     ].joined(separator: "|")
     guard key != renderedStatusKey else { return }
@@ -277,7 +344,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     if lastError != nil {
       statusItem.button?.image = StatusProgressIcon.renderError()
       statusItem.button?.title = ""
-    } else if !unreadCompletedTaskIDs.isEmpty {
+    } else if showsCompletion {
       statusItem.button?.image = StatusProgressIcon.renderCompletion()
       statusItem.button?.title = unreadCompletedTaskIDs.count > 1 ? "\(unreadCompletedTaskIDs.count)" : ""
     } else {
@@ -287,12 +354,18 @@ final class StatusController: NSObject, NSMenuDelegate {
     statusItem.button?.toolTip = statusTooltip()
   }
 
+  /// The completion badge used to replace the progress ring until the menu was
+  /// opened, hiding the progress of every download that was still running.
+  private var showsCompletionBadge: Bool {
+    !unreadCompletedTaskIDs.isEmpty && !tasks.contains { $0.status == "active" && !$0.isSeeding }
+  }
+
   private func statusTooltip() -> String {
     if let lastError {
       return L10n.format("status_tooltip.rpc_disconnected", lastError)
     }
 
-    if !unreadCompletedTaskIDs.isEmpty {
+    if showsCompletionBadge {
       return L10n.format("status_tooltip.completed_tasks", String(unreadCompletedTaskIDs.count))
     }
 
@@ -371,9 +444,15 @@ final class StatusController: NSObject, NSMenuDelegate {
   }
 
   private func makeProgressSummary(_ tasks: [Aria2Task]) -> ProgressSummary? {
-    let incomplete = tasks.filter { task in
-      task.status == "active" || task.status == "waiting" || task.status == "paused"
+    // A seeding torrent is "active" but finished; counting it pinned the ring
+    // near 100%.
+    let unfinished = tasks.filter { task in
+      (task.status == "active" || task.status == "waiting" || task.status == "paused") && !task.isSeeding
     }
+    // Paused tasks do not move. While anything is queued to run, measure only
+    // that queue so a large paused task cannot flatten the percentage.
+    let queued = unfinished.filter { $0.status != "paused" }
+    let incomplete = queued.isEmpty ? unfinished : queued
 
     if incomplete.isEmpty {
       let hasCompleted = tasks.contains { $0.status == "complete" }
@@ -395,6 +474,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
   private func taskMenuItem(_ task: Aria2Task) -> NSMenuItem {
     let item = menuItem(title: taskTitle(task), systemImage: taskImageName(task), action: nil)
+    item.identifier = NSUserInterfaceItemIdentifier(task.id)
     item.toolTip = task.name
     let submenu = NSMenu()
 
@@ -468,25 +548,6 @@ final class StatusController: NSObject, NSMenuDelegate {
     return "\(Formatting.bytes(task.completedLength)) / \(Formatting.bytes(task.totalLength))\(speed)"
   }
 
-  private func localizedStatus(_ status: String) -> String {
-    switch status {
-    case "active":
-      return L10n.tr("task.status.downloading")
-    case "waiting":
-      return L10n.tr("task.status.waiting")
-    case "paused":
-      return L10n.tr("action.pause")
-    case "complete":
-      return L10n.tr("action.done")
-    case "error":
-      return L10n.tr("task.status.error")
-    case "removed":
-      return L10n.tr("task.status.removed")
-    default:
-      return status
-    }
-  }
-
   @objc private func retry() {
     Task {
       await engine.ensureRunning(client: client, force: true)
@@ -501,6 +562,7 @@ final class StatusController: NSObject, NSMenuDelegate {
   private func restartEngineAndReport() async -> Bool {
     guard !isRestartingEngine else { return false }
     isRestartingEngine = true
+    events.disconnect()
     snapshots.isSuspended = true
     snapshots.invalidate()
     defer {
@@ -524,6 +586,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     // The status item text is localized, so a language change must redraw it.
     renderedStatusKey = nil
     renderMenu()
+    updateDownloadActivity()
     client.updateDefaults(config)
     adaptiveSplitController.updateConfig(config)
     adaptiveConnectionController.updateConfig(config)
@@ -596,7 +659,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     guard
       let task = tasks.first(where: { $0.id == gid }),
-      AppConfig.load().skipsRemovalConfirmation || TaskRemovalConfirmation.confirm(task)
+      config.skipsRemovalConfirmation || TaskRemovalConfirmation.confirm(task)
     else {
       return
     }
@@ -607,6 +670,8 @@ final class StatusController: NSObject, NSMenuDelegate {
           try await client.removeDownloadResult(gid)
         } else {
           try await client.remove(gid)
+          // aria2 keeps no result to remove until the task has stopped.
+          try? await Task.sleep(for: .milliseconds(80))
           try? await client.removeDownloadResult(gid)
         }
         snapshots.remove([gid])

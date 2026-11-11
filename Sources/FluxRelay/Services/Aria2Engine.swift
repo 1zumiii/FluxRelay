@@ -141,7 +141,7 @@ final class Aria2Engine {
     let diagnosticsPipe = Pipe()
     process.executableURL = binary
     process.currentDirectoryURL = config.supportDirectory
-    process.arguments = config.aria2StartArguments()
+    process.arguments = config.aria2LaunchArguments()
     process.terminationHandler = { [weak self] process in
       let diagnostics = String(
         data: diagnosticsPipe.fileHandleForReading.readDataToEndOfFile(),

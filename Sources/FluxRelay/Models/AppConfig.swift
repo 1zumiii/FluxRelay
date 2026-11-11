@@ -44,6 +44,10 @@ struct AppConfig {
     boolValue(userConfig["task-notification"]) ?? true
   }
 
+  var preventsSleepWhileDownloading: Bool {
+    boolValue(userConfig["prevent-sleep-while-downloading"]) ?? true
+  }
+
   var skipsRemovalConfirmation: Bool {
     boolValue(userConfig["no-confirm-before-delete-task"]) ?? false
   }
@@ -153,6 +157,33 @@ struct AppConfig {
     )
   }
 
+  /// Arguments for launching the engine. The secret is moved into a private
+  /// copy of the configuration file, because arguments are visible in `ps`.
+  func aria2LaunchArguments() -> [String] {
+    let arguments = aria2StartArguments()
+    let secretFitsOneLine = rpcSecret == rpcSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+      && !rpcSecret.contains(where: \.isNewline)
+    guard
+      !rpcSecret.isEmpty, secretFitsOneLine,
+      let base = try? String(contentsOf: aria2ConfigPath, encoding: .utf8)
+    else {
+      return arguments
+    }
+
+    let runtimeConfig = supportDirectory.appendingPathComponent("aria2.runtime.conf")
+    try? FileManager.default.removeItem(at: runtimeConfig)
+    guard FileManager.default.createFile(
+      atPath: runtimeConfig.path,
+      contents: Data("\(base)\nrpc-secret=\(rpcSecret)\n".utf8),
+      attributes: [.posixPermissions: 0o600]
+    ) else {
+      return arguments
+    }
+    return arguments
+      .filter { !$0.hasPrefix("--rpc-secret=") }
+      .map { $0.hasPrefix("--conf-path=") ? "--conf-path=\(runtimeConfig.path)" : $0 }
+  }
+
   func updating(system: [String: Any]? = nil, user: [String: Any]? = nil) -> AppConfig {
     AppConfig(
       supportDirectory: supportDirectory,
@@ -198,7 +229,12 @@ struct AppConfig {
     // Older Motrix configurations disabled TLS verification globally. Do not
     // carry that insecure default into the independent engine.
     engineConfig["check-certificate"] = "true"
-    for key in ["log", "log-level", "quiet", "show-console-readout", "enable-color"] {
+    // The RPC port is for this app only: never listen beyond loopback or
+    // answer cross-origin requests, whatever an imported configuration says.
+    for key in [
+      "log", "log-level", "quiet", "show-console-readout", "enable-color",
+      "rpc-allow-origin-all", "rpc-listen-all"
+    ] {
       engineConfig.removeValue(forKey: key)
     }
     engineConfig["max-connection-per-server"] = Aria2Limits.clampConnections(

@@ -66,6 +66,19 @@ final class TaskSnapshotStoreTests: XCTestCase {
     XCTAssertEqual(requests().filter { $0 == "aria2.tellStatus" }.count, 1, "File metadata should be cached")
   }
 
+  func testStoppedListIsReusedWhileTheQueueIsUnchanged() async {
+    let requests = installTask("complete")
+    let store = TaskSnapshotStore(config: config, client: client)
+    await store.refresh()
+    await store.refresh()
+    XCTAssertEqual(requests().filter { $0 == "aria2.getGlobalStat" }.count, 2)
+    XCTAssertEqual(requests().filter { $0 == "aria2.tellStopped" }.count, 1)
+    XCTAssertEqual(store.tasks.map(\.id), ["abc"])
+    store.invalidate()
+    await store.refresh()
+    XCTAssertEqual(requests().filter { $0 == "aria2.tellStopped" }.count, 2)
+  }
+
   func testOfflineStartupLoadsSearchableHistoryAndDeletionIsShared() async throws {
     _ = installTask("active")
     let store = TaskSnapshotStore(config: config, client: client)
@@ -197,12 +210,14 @@ final class TaskSnapshotStoreTests: XCTestCase {
   }
 
   func testSavedRPCSettingsDoNotDisconnectAndPendingSurvivesSaveAndReset() {
+    let config = config.updating(system: ["rpc-listen-port": 16800, "rpc-secret": "original"], user: nil)
+    client.updateConfig(config)
     let model = MainWindowModel(config: config, client: client)
     model.settings.rpcPort = 16801
     model.settings.rpcSecret = "changed"
     model.saveSettings()
     XCTAssertEqual(client.endpoint?.port, 16800)
-    XCTAssertEqual(client.runningConfig.rpcSecret, "")
+    XCTAssertEqual(client.runningConfig.rpcSecret, "original")
     XCTAssertTrue(model.settingsNeedsEngineRestart)
     model.settings.pause.toggle()
     model.saveSettings()
@@ -210,7 +225,7 @@ final class TaskSnapshotStoreTests: XCTestCase {
     model.resetSettings()
     XCTAssertTrue(model.settingsNeedsEngineRestart)
     model.settings.rpcPort = 16800
-    model.settings.rpcSecret = ""
+    model.settings.rpcSecret = "original"
     model.saveSettings()
     XCTAssertFalse(model.settingsNeedsEngineRestart)
   }

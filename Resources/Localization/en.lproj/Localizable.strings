@@ -99,6 +99,8 @@
 "preferences.notifications.title" = "Notify When Downloads Finish";
 "preferences.open_at_login.subtitle" = "Start FluxRelay automatically after logging in";
 "preferences.open_at_login.title" = "Open at Login";
+"preferences.prevent_sleep.subtitle" = "Prevent idle sleep while a download is in progress; the display can still turn off";
+"preferences.prevent_sleep.title" = "Keep Mac Awake While Downloading";
 "preferences.proxy.footer" = "Manual proxy settings are passed to aria2. System mode reads macOS HTTP/HTTPS proxies. TUN mode is handled transparently by system routing.";
 "preferences.proxy.mode.disabled" = "Off";
 "preferences.proxy.mode.manual" = "Manual";
@@ -125,7 +127,7 @@
 "preferences.rpc_secret.generate" = "Generate Random Secret";
 "preferences.rpc_secret.hide" = "Hide Secret";
 "preferences.rpc_secret.show" = "Show Secret";
-"preferences.rpc_secret.subtitle" = "Protects the JSON-RPC connection";
+"preferences.rpc_secret.subtitle" = "Optional. Protects the JSON-RPC connection; leave empty for tools that cannot send a secret";
 "preferences.rpc_secret.title" = "Authorization Secret";
 "preferences.rpc.footer" = "Restart the engine from the menu bar's advanced menu after changing RPC settings.";
 "preferences.save_metadata.subtitle" = "Save retrieved metadata as a torrent file";

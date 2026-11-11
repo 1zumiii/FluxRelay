@@ -877,6 +877,7 @@ struct SettingsDraft {
   var proxyPort = ProxyConfiguration.defaultPort
   var openAtLogin = false
   var taskNotification = true
+  var preventSleep = true
   var noConfirmBeforeDeleteTask = false
   var adaptiveSplits = true
   var adaptiveConnections = true
@@ -927,6 +928,7 @@ struct SettingsDraft {
     proxyPort = min(65535, max(1, Self.int(user["proxy-port"], fallback: proxyPort)))
     openAtLogin = Self.bool(user["open-at-login"], fallback: false)
     taskNotification = Self.bool(user["task-notification"], fallback: true)
+    preventSleep = Self.bool(user["prevent-sleep-while-downloading"], fallback: true)
     noConfirmBeforeDeleteTask = Self.bool(user["no-confirm-before-delete-task"], fallback: false)
     adaptiveSplits = Self.bool(user["adaptive-splits"], fallback: true)
     adaptiveConnections = Self.bool(user["adaptive-connections"], fallback: true)
@@ -959,6 +961,7 @@ struct SettingsDraft {
     var result = base
     result["open-at-login"] = openAtLogin
     result["task-notification"] = taskNotification
+    result["prevent-sleep-while-downloading"] = preventSleep
     result["no-confirm-before-delete-task"] = noConfirmBeforeDeleteTask
     result["adaptive-splits"] = adaptiveSplits
     result["adaptive-connections"] = adaptiveConnections
@@ -988,6 +991,7 @@ struct SettingsDraft {
 
     addImmediate("preferences.open_at_login.title", when: openAtLogin != previous.openAtLogin)
     addImmediate("preferences.notifications.title", when: taskNotification != previous.taskNotification)
+    addImmediate("preferences.prevent_sleep.title", when: preventSleep != previous.preventSleep)
     addImmediate("preferences.language.title", when: appLanguage != previous.appLanguage)
     addImmediate("preferences.default_pause.title", when: pause != previous.pause)
     addImmediate("preferences.skip_removal_confirmation.title", when: noConfirmBeforeDeleteTask != previous.noConfirmBeforeDeleteTask)

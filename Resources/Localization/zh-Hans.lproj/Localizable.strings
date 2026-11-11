@@ -99,6 +99,8 @@
 "preferences.notifications.title" = "下载完成后通知";
 "preferences.open_at_login.subtitle" = "登录 Mac 后自动启动 FluxRelay";
 "preferences.open_at_login.title" = "登录时打开";
+"preferences.prevent_sleep.subtitle" = "有任务正在下载时阻止系统空闲休眠，显示器仍可关闭";
+"preferences.prevent_sleep.title" = "下载时阻止休眠";
 "preferences.proxy.footer" = "手动代理会传给 aria2；系统模式读取 macOS 的 HTTP/HTTPS 代理。TUN 模式由系统路由透明接管，无需额外设置。";
 "preferences.proxy.mode.disabled" = "关闭";
 "preferences.proxy.mode.manual" = "手动";
@@ -125,7 +127,7 @@
 "preferences.rpc_secret.generate" = "生成随机密钥";
 "preferences.rpc_secret.hide" = "隐藏密钥";
 "preferences.rpc_secret.show" = "显示密钥";
-"preferences.rpc_secret.subtitle" = "用于保护 JSON-RPC 连接";
+"preferences.rpc_secret.subtitle" = "可选。用于保护 JSON-RPC 连接；外部工具无法填写密钥时留空";
 "preferences.rpc_secret.title" = "授权密钥";
 "preferences.rpc.footer" = "RPC 设置发生变化后，需要从状态栏的高级菜单重启引擎。";
 "preferences.save_metadata.subtitle" = "将获取到的元数据保存为 torrent 文件";

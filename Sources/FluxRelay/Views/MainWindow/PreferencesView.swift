@@ -135,6 +135,14 @@ struct PreferencesView: View {
           isOn: $model.settings.taskNotification
         )
         PreferenceDivider()
+        preferenceToggle(
+          L10n.tr("preferences.prevent_sleep.title"),
+          subtitle: L10n.tr("preferences.prevent_sleep.subtitle"),
+          image: "moon.zzz.fill",
+          color: .indigo,
+          isOn: $model.settings.preventSleep
+        )
+        PreferenceDivider()
         PreferenceRow(
           title: L10n.tr("preferences.language.title"),
           subtitle: L10n.tr("preferences.language.subtitle"),

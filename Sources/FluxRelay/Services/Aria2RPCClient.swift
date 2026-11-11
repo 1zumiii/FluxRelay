@@ -488,28 +488,33 @@ final class Aria2RPCClient {
     } else {
       snapshot = try await getGlobalStat()
     }
+    let queued = try await listQueuedTasks(stat: snapshot, summaryOnly: summaryOnly)
+    let stopped = try await listStoppedTasks(stat: snapshot, summaryOnly: summaryOnly)
+    var seen = Set<String>()
+    return (queued + stopped).filter { seen.insert($0.id).inserted }
+  }
+
+  /// Active and waiting tasks: the part of the queue that changes between polls.
+  func listQueuedTasks(stat: Aria2GlobalStat, summaryOnly: Bool = false) async throws -> [Aria2Task] {
     let keys = summaryOnly ? Self.summaryKeys : nil
     let active: [[String: Any]] = try await call("aria2.tellActive", params: keys.map { [$0] } ?? [])
     let waiting = try await paginatedTasks(
       method: "aria2.tellWaiting",
-      count: snapshot.waiting,
+      count: stat.waiting,
       keys: keys,
       offset: { page in page * 100 }
     )
-    let stopped = try await paginatedTasks(
-      method: "aria2.tellStopped",
-      count: snapshot.stopped,
-      keys: keys,
-      offset: { page in -1 - page * 100 }
-    )
+    return (active + waiting).compactMap(Aria2Task.from)
+  }
 
-    var seen = Set<String>()
-    return (active + waiting + stopped).compactMap { dictionary in
-      guard let task = Aria2Task.from(dictionary), seen.insert(task.id).inserted else {
-        return nil
-      }
-      return task
-    }
+  /// Stopped results never change once listed, so callers may cache them.
+  func listStoppedTasks(stat: Aria2GlobalStat, summaryOnly: Bool = false) async throws -> [Aria2Task] {
+    try await paginatedTasks(
+      method: "aria2.tellStopped",
+      count: stat.stopped,
+      keys: summaryOnly ? Self.summaryKeys : nil,
+      offset: { page in -1 - page * 100 }
+    ).compactMap(Aria2Task.from)
   }
 
   private func paginatedTasks(
